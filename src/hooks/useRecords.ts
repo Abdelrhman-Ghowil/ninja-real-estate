@@ -1,9 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchRecords, updateRecord, createRecord } from '../api/records';
+import { fetchRecords, updateRecord, createRecord, deleteRecord } from '../api/records';
 import type { PropertyRecord } from '../api/records';
 import { toast } from 'sonner';
 
 export const RECORDS_KEY = ['records'] as const;
+
+// Tracks IDs deleted in this session so polling refetches don't bring them back
+const deletedIds = new Set<number>();
 
 export function useRecords() {
   return useQuery({
@@ -11,6 +14,8 @@ export function useRecords() {
     queryFn: fetchRecords,
     staleTime: 15_000,
     refetchInterval: 20_000,
+    select: (data) =>
+      deletedIds.size > 0 ? data.filter((r) => !deletedIds.has(r.id)) : data,
   });
 }
 
@@ -39,6 +44,31 @@ export function useUpdateRecord() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: RECORDS_KEY });
+    },
+  });
+}
+
+export function useDeleteRecord() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => deleteRecord(id),
+    onMutate: async (id) => {
+      deletedIds.add(id);
+      await qc.cancelQueries({ queryKey: RECORDS_KEY });
+      const prev = qc.getQueryData<PropertyRecord[]>(RECORDS_KEY);
+      qc.setQueryData<PropertyRecord[]>(RECORDS_KEY, (old) =>
+        old?.filter((r) => r.id !== id) ?? []
+      );
+      return { prev };
+    },
+    onError: (_err, id, ctx) => {
+      deletedIds.delete(id);
+      if (ctx?.prev) qc.setQueryData(RECORDS_KEY, ctx.prev);
+      toast.error('فشل الحذف، تم الرجوع للحالة السابقة');
+    },
+    onSuccess: () => {
+      toast.success('تم حذف السجل');
     },
   });
 }

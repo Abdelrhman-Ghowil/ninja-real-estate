@@ -6,6 +6,13 @@ import ReviewPage from './pages/ReviewPage';
 import RecordsPage from './pages/RecordsPage';
 import SubmitPage from './pages/SubmitPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import { isAuthenticated, canAccessRecords } from './utils/auth';
+
+function RecordsRoute() {
+  if (!isAuthenticated()) return <Navigate to="/login" replace />;
+  if (!canAccessRecords()) return <Navigate to="/review" replace />;
+  return <RecordsPage />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,14 +38,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/records"
-            element={
-              <ProtectedRoute>
-                <RecordsPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/records" element={<RecordsRoute />} />
           <Route path="*" element={<Navigate to="/review" replace />} />
         </Routes>
         <Toaster

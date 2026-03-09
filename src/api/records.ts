@@ -39,3 +39,10 @@ export async function createRecord(
     body: JSON.stringify(data),
   });
 }
+
+export async function deleteRecord(id: number): Promise<void> {
+  return apiFetch<void>('/webhook/api/list', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  });
+}

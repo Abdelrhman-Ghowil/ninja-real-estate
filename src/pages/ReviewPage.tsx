@@ -21,16 +21,36 @@ export default function ReviewPage() {
   const { data: records, isLoading, isError } = useRecords();
   const updateRecord = useUpdateRecord();
   const [filter, setFilter] = useState<FilterStatus>('PENDING');
+  const [nameFilter, setNameFilter] = useState('');
+  const [weekFilter, setWeekFilter] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [history, setHistory] = useState<{ id: number; prevStatus: 'APPROVED' | 'REJECTED' | null }[]>([]);
+
+  const weekRange = getWeekRange(weekFilter);
+  const normalizedNameFilter = nameFilter.trim().toLowerCase();
+
+  const matchesAdvancedFilters = (record: PropertyRecord) => {
+    const matchesName = !normalizedNameFilter || [
+      record.location,
+      record.city,
+      record.region,
+      record.raw_text,
+    ].some((field) => field?.toLowerCase().includes(normalizedNameFilter));
+
+    if (!weekRange) return matchesName;
+    const createdAt = new Date(record.createdAt);
+    if (Number.isNaN(createdAt.getTime())) return false;
+    return matchesName && createdAt >= weekRange.start && createdAt < weekRange.end;
+  };
 
   const filteredRecords = (records ?? []).filter((r) => {
     if (filter === 'PENDING') return r.Status === null;
-    if (filter === 'APPROVED') return r.Status === 'APPROVED';
-    if (filter === 'REJECTED') return r.Status === 'REJECTED';
-    return true;
+    if (filter === 'APPROVED') return r.Status === 'APPROVED' && matchesAdvancedFilters(r);
+    if (filter === 'REJECTED') return r.Status === 'REJECTED' && matchesAdvancedFilters(r);
+    return matchesAdvancedFilters(r);
   });
 
-  const swipeableRecords = (records ?? []).filter((r) => r.Status === null);
+  const swipeableRecords = (records ?? []).filter((r) => r.Status === null && matchesAdvancedFilters(r));
   const currentCard = swipeableRecords[0];
 
   function handleAction(record: PropertyRecord, status: 'APPROVED' | 'REJECTED') {
@@ -78,6 +98,42 @@ export default function ReviewPage() {
               {chip.label}
             </button>
           ))}
+        </div>
+
+        <div style={{ marginBottom: 24 }}>
+          <button
+            type="button"
+            onClick={() => setShowFilters((value) => !value)}
+            style={{
+              padding: '7px 16px', borderRadius: 100, border: '1px solid var(--color-border)',
+              background: showFilters ? 'rgba(108,99,255,0.16)' : 'transparent',
+              color: showFilters ? 'var(--color-accent)' : 'var(--color-text-muted)',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease',
+            }}
+            aria-expanded={showFilters}
+            aria-controls="review-advanced-filters"
+          >
+            {showFilters ? 'إخفاء الفلاتر' : 'إظهار الفلاتر'}
+          </button>
+          {showFilters && (
+            <div
+              id="review-advanced-filters"
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}
+            >
+              <input
+                className="input-field"
+                placeholder="فلترة بالاسم أو المدينة أو المنطقة..."
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+              />
+              <input
+                className="input-field"
+                type="week"
+                value={weekFilter}
+                onChange={(e) => setWeekFilter(e.target.value)}
+              />
+            </div>
+          )}
         </div>
 
         {filter === 'PENDING' && (
@@ -223,4 +279,27 @@ function ErrorState() {
       <p style={{ color: 'var(--color-danger)' }}>خطأ في تحميل البيانات</p>
     </div>
   );
+}
+
+function getWeekRange(weekValue: string): { start: Date; end: Date } | null {
+  if (!weekValue) return null;
+  const matched = /^(\d{4})-W(\d{2})$/.exec(weekValue);
+  if (!matched) return null;
+
+  const year = Number(matched[1]);
+  const week = Number(matched[2]);
+  if (!Number.isFinite(year) || !Number.isFinite(week)) return null;
+
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const firstWeekStart = new Date(jan4);
+  firstWeekStart.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+
+  const start = new Date(firstWeekStart);
+  start.setUTCDate(firstWeekStart.getUTCDate() + (week - 1) * 7);
+
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 7);
+
+  return { start, end };
 }

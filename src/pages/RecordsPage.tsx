@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import Layout from '../components/Layout';
 import StatusBadge from '../components/StatusBadge';
 import Skeleton from '../components/Skeleton';
-import { useRecords, useUpdateRecord } from '../hooks/useRecords';
+import { useRecords, useUpdateRecord, useDeleteRecord } from '../hooks/useRecords';
 import type { PropertyRecord } from '../api/records';
 import { formatPrice, formatArea, formatDate } from '../utils/format';
 
@@ -13,6 +13,7 @@ type StatusFilter = 'ALL' | 'APPROVED' | 'REJECTED' | 'PENDING';
 export default function RecordsPage() {
   const { data: records, isLoading, isError, refetch, isFetching } = useRecords();
   const updateRecord = useUpdateRecord();
+  const deleteRecord = useDeleteRecord();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [selectedRecord, setSelectedRecord] = useState<PropertyRecord | null>(null);
@@ -41,6 +42,11 @@ export default function RecordsPage() {
   function handleAction(record: PropertyRecord, status: 'APPROVED' | 'REJECTED') {
     updateRecord.mutate({ id: record.id, data: { Status: status } });
     toast.success(status === 'APPROVED' ? 'تمت الموافقة' : 'تم الرفض');
+  }
+
+  function handleDelete(record: PropertyRecord) {
+    deleteRecord.mutate(record.id);
+    setSelectedRecord(null);
   }
 
   const STATUS_FILTERS: { label: string; value: StatusFilter }[] = [
@@ -122,6 +128,7 @@ export default function RecordsPage() {
                 key={record.id}
                 record={record}
                 onAction={handleAction}
+                onDelete={handleDelete}
                 onSelect={setSelectedRecord}
               />
             ))}
@@ -130,7 +137,12 @@ export default function RecordsPage() {
 
         <AnimatePresence>
           {selectedRecord && (
-            <RecordModal record={selectedRecord} onClose={() => setSelectedRecord(null)} onAction={handleAction} />
+            <RecordModal
+              record={selectedRecord}
+              onClose={() => setSelectedRecord(null)}
+              onAction={handleAction}
+              onDelete={handleDelete}
+            />
           )}
         </AnimatePresence>
       </div>
@@ -142,11 +154,24 @@ export default function RecordsPage() {
   );
 }
 
-function RecordCard({ record, onAction, onSelect }: {
+function RecordCard({ record, onAction, onDelete, onSelect }: {
   record: PropertyRecord;
   onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void;
+  onDelete: (r: PropertyRecord) => void;
   onSelect: (r: PropertyRecord) => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  function handleDeleteClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (confirmDelete) {
+      onDelete(record);
+    } else {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 3000);
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -175,6 +200,20 @@ function RecordCard({ record, onAction, onSelect }: {
         <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
           <ActionBtn label="✓" color="var(--color-success)" onClick={() => onAction(record, 'APPROVED')} />
           <ActionBtn label="✕" color="var(--color-danger)" onClick={() => onAction(record, 'REJECTED')} />
+          <button
+            onClick={handleDeleteClick}
+            title={confirmDelete ? 'اضغط مرة أخرى للتأكيد' : 'حذف'}
+            style={{
+              height: 30, borderRadius: 6, border: '1px solid var(--color-danger)',
+              background: confirmDelete ? 'var(--color-danger)' : 'transparent',
+              color: confirmDelete ? 'white' : 'var(--color-danger)',
+              cursor: 'pointer', fontSize: 11, fontWeight: 700,
+              padding: '0 8px', whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {confirmDelete ? 'تأكيد الحذف' : '🗑'}
+          </button>
         </div>
       </div>
     </motion.div>
@@ -194,11 +233,13 @@ function ActionBtn({ label, color, onClick }: { label: string; color: string; on
   );
 }
 
-function RecordModal({ record, onClose, onAction }: {
+function RecordModal({ record, onClose, onAction, onDelete }: {
   record: PropertyRecord;
   onClose: () => void;
   onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void;
+  onDelete: (r: PropertyRecord) => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fields: [string, string][] = [
     ['الموقع', record.location],
     ['المدينة', record.city],
@@ -262,7 +303,7 @@ function RecordModal({ record, onClose, onAction }: {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
           <button onClick={() => { onAction(record, 'APPROVED'); onClose(); }} style={{
             flex: 1, padding: 12, borderRadius: 'var(--radius-md)', border: 'none',
             background: 'var(--color-success)', color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: 14,
@@ -272,6 +313,26 @@ function RecordModal({ record, onClose, onAction }: {
             background: 'var(--color-danger)', color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: 14,
           }}>✕ رفض</button>
         </div>
+        <button
+          onClick={() => {
+            if (confirmDelete) {
+              onDelete(record);
+            } else {
+              setConfirmDelete(true);
+              setTimeout(() => setConfirmDelete(false), 3000);
+            }
+          }}
+          style={{
+            width: '100%', padding: 12, borderRadius: 'var(--radius-md)',
+            border: `1px solid var(--color-danger)`,
+            background: confirmDelete ? 'var(--color-danger)' : 'transparent',
+            color: confirmDelete ? 'white' : 'var(--color-danger)',
+            fontWeight: 600, cursor: 'pointer', fontSize: 14,
+            transition: 'all 0.15s ease',
+          }}
+        >
+          {confirmDelete ? '⚠️ اضغط مرة أخرى للتأكيد' : '🗑 حذف السجل'}
+        </button>
       </motion.div>
     </motion.div>
   );

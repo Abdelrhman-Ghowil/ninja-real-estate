@@ -42,7 +42,7 @@ const FIELDS: Array<{
 
 export default function SubmitPage() {
   const [submitted, setSubmitted] = useState(false);
-  const [lastSubmit, setLastSubmit] = useState(0);
+  const [isRateLimited, setIsRateLimited] = useState(false);
   const createRecord = useCreateRecord();
 
   const {
@@ -63,12 +63,13 @@ export default function SubmitPage() {
   });
 
   async function onSubmit(data: FormData) {
-    const now = Date.now();
-    if (now - lastSubmit < 10_000) return;
+    if (isRateLimited) return;
     if (data.honeypot) return;
-    const { honeypot: _h, ...payload } = data;
+    const payload = { ...data };
+    delete payload.honeypot;
     await createRecord.mutateAsync({ ...payload, currency: 'SAR', Status: null });
-    setLastSubmit(now);
+    setIsRateLimited(true);
+    window.setTimeout(() => setIsRateLimited(false), 10_000);
     setSubmitted(true);
   }
 
@@ -171,18 +172,18 @@ export default function SubmitPage() {
 
                   <motion.button
                     type="submit"
-                    disabled={isSubmitting || createRecord.isPending}
+                    disabled={isSubmitting || createRecord.isPending || isRateLimited}
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.98 }}
                     style={{
                       padding: '14px', borderRadius: 'var(--radius-md)', border: 'none',
-                      background: (isSubmitting || createRecord.isPending) ? 'var(--color-surface-2)' : 'var(--color-accent)',
+                      background: (isSubmitting || createRecord.isPending || isRateLimited) ? 'var(--color-surface-2)' : 'var(--color-accent)',
                       color: 'white', fontSize: 15, fontWeight: 600,
-                      cursor: (isSubmitting || createRecord.isPending) ? 'not-allowed' : 'pointer',
+                      cursor: (isSubmitting || createRecord.isPending || isRateLimited) ? 'not-allowed' : 'pointer',
                       transition: 'background 0.2s',
                     }}
                   >
-                    {(isSubmitting || createRecord.isPending) ? 'جارِ الإرسال...' : 'إرسال العقار'}
+                    {(isSubmitting || createRecord.isPending) ? 'جارِ الإرسال...' : isRateLimited ? 'انتظر 10 ثوانٍ' : 'إرسال العقار'}
                   </motion.button>
                 </div>
               </form>

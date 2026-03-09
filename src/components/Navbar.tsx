@@ -1,15 +1,20 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { logout, getUsername } from '../utils/auth';
+import { logout, getUsername, canAccessRecords } from '../utils/auth';
 
-const NAV_LINKS = [
-  { to: '/review', label: 'المراجعة' },
-  { to: '/records', label: 'السجلات' },
+const ALL_NAV_LINKS = [
+  { to: '/review', label: 'المراجعة', requiresRecordsAccess: false },
+  { to: '/records', label: 'السجلات', requiresRecordsAccess: true },
 ];
 
 export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const username = getUsername();
+  const recordsAccess = canAccessRecords();
+
+  const navLinks = ALL_NAV_LINKS.filter(
+    (link) => !link.requiresRecordsAccess || recordsAccess
+  );
 
   function handleLogout() {
     logout();
@@ -53,7 +58,7 @@ export default function Navbar() {
 
         {/* Nav links */}
         <nav style={{ display: 'flex', gap: 4 }}>
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <Link
               key={link.to}
               to={link.to}

@@ -1,5 +1,10 @@
 const SESSION_KEY = 'ninja-session';
-const DEMO_USERS = [{ username: 'admin', password: 'ninja2026' }];
+const ROLE_KEY = 'ninja-role';
+
+const DEMO_USERS = [
+  { username: 'admin', password: 'ninja2026', role: 'reviewer' },
+  { username: 'admin2', password: 'admin123', role: 'admin' },
+];
 
 export function login(username: string, password: string): boolean {
   const user = DEMO_USERS.find(
@@ -7,6 +12,7 @@ export function login(username: string, password: string): boolean {
   );
   if (user) {
     localStorage.setItem(SESSION_KEY, btoa(username));
+    localStorage.setItem(ROLE_KEY, user.role);
     return true;
   }
   return false;
@@ -14,6 +20,7 @@ export function login(username: string, password: string): boolean {
 
 export function logout(): void {
   localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(ROLE_KEY);
 }
 
 export function isAuthenticated(): boolean {
@@ -28,4 +35,12 @@ export function getUsername(): string | null {
   } catch {
     return null;
   }
+}
+
+export function getRole(): string | null {
+  return localStorage.getItem(ROLE_KEY);
+}
+
+export function canAccessRecords(): boolean {
+  return getRole() === 'admin';
 }
