@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -74,7 +74,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [submitDone, setSubmitDone] = useState(false);
-  const lastSubmit = useRef<number>(0);
+  const [isRateLimited, setIsRateLimited] = useState(false);
   const createRecord = useCreateRecord();
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -125,9 +125,10 @@ export default function LoginPage() {
   }
 
   async function onSubmitProperty(data: SubmitData) {
-    const now = Date.now();
-    if (now - lastSubmit.current < 10_000) return;
+    if (isRateLimited) return;
     if (data.honeypot) return;
+    setIsRateLimited(true);
+    setTimeout(() => setIsRateLimited(false), 10_000);
     await createRecord.mutateAsync({
       location: data.location,
       city: data.city,
@@ -142,7 +143,6 @@ export default function LoginPage() {
       currency: 'SAR',
       Status: null,
     });
-    lastSubmit.current = now;
     setSubmitDone(true);
   }
 
@@ -465,19 +465,19 @@ export default function LoginPage() {
 
                           <motion.button
                             type="submit"
-                            disabled={pendingS || createRecord.isPending}
+                            disabled={pendingS || createRecord.isPending || isRateLimited}
                             whileHover={{ scale: 1.01 }}
                             whileTap={{ scale: 0.98 }}
                             style={{
                               padding: '13px', borderRadius: 'var(--radius-md)', border: 'none',
-                              background: (pendingS || createRecord.isPending)
+                              background: (pendingS || createRecord.isPending || isRateLimited)
                                 ? 'var(--color-surface-2)' : 'var(--color-accent)',
                               color: 'white', fontSize: 15, fontWeight: 600,
-                              cursor: (pendingS || createRecord.isPending) ? 'not-allowed' : 'pointer',
+                              cursor: (pendingS || createRecord.isPending || isRateLimited) ? 'not-allowed' : 'pointer',
                               transition: 'background 0.2s', fontFamily: 'inherit',
                             }}
                           >
-                            {(pendingS || createRecord.isPending) ? 'جارِ الإرسال...' : 'إرسال العقار'}
+                            {(pendingS || createRecord.isPending) ? 'جارِ الإرسال...' : isRateLimited ? 'انتظر 10 ثوانٍ...' : 'إرسال العقار'}
                           </motion.button>
                         </div>
                       </motion.form>

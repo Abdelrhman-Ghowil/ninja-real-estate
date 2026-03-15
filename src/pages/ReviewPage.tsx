@@ -17,6 +17,11 @@ const FILTER_CHIPS: { label: string; value: FilterStatus }[] = [
   { label: 'الكل', value: 'ALL' },
 ];
 
+function normalizeStatus(status: unknown): 'APPROVED' | 'REJECTED' | null {
+  if (status === 'APPROVED' || status === 'REJECTED') return status;
+  return null;
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'agent';
@@ -112,17 +117,18 @@ export default function ReviewPage() {
   };
 
   const filteredRecords = (records ?? []).filter((r) => {
-    if (filter === 'PENDING') return r.Status === null;
-    if (filter === 'APPROVED') return r.Status === 'APPROVED' && matchesAdvancedFilters(r);
-    if (filter === 'REJECTED') return r.Status === 'REJECTED' && matchesAdvancedFilters(r);
+    const status = normalizeStatus(r.Status);
+    if (filter === 'PENDING') return status === null;
+    if (filter === 'APPROVED') return status === 'APPROVED' && matchesAdvancedFilters(r);
+    if (filter === 'REJECTED') return status === 'REJECTED' && matchesAdvancedFilters(r);
     return matchesAdvancedFilters(r);
   });
 
-  const swipeableRecords = (records ?? []).filter((r) => r.Status === null && matchesAdvancedFilters(r));
+  const swipeableRecords = (records ?? []).filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
   const currentCard = swipeableRecords[0];
 
   function handleAction(record: PropertyRecord, status: 'APPROVED' | 'REJECTED') {
-    setHistory((h) => [{ id: record.id, prevStatus: record.Status }, ...h.slice(0, 9)]);
+    setHistory((h) => [{ id: record.id, prevStatus: normalizeStatus(record.Status) }, ...h.slice(0, 9)]);
     updateRecord.mutate({ id: record.id, data: { Status: status } });
     toast.success(status === 'APPROVED' ? 'تمت الموافقة' : 'تم الرفض', { duration: 2000 });
   }
@@ -135,7 +141,7 @@ export default function ReviewPage() {
     toast.info('تم التراجع');
   }
 
-  const pendingCount = (records ?? []).filter((r) => r.Status === null).length;
+  const pendingCount = (records ?? []).filter((r) => normalizeStatus(r.Status) === null).length;
   const totalCount = records?.length ?? 0;
 
   return (
@@ -296,7 +302,6 @@ function ChatWidget() {
 
   useEffect(() => {
     if (open) {
-      setHasUnread(false);
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
       setTimeout(() => inputRef.current?.focus(), 120);
     }
@@ -550,7 +555,13 @@ function ChatWidget() {
             }} />
           )}
           <motion.button
-            onClick={() => setOpen(v => !v)}
+            onClick={() => {
+              setOpen((prev) => {
+                const next = !prev;
+                if (next) setHasUnread(false);
+                return next;
+              });
+            }}
             whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.92 }}
             title={open ? 'إغلاق المحادثة' : 'تحدث مع مساعدنا'}
@@ -635,7 +646,7 @@ function RecordRow({ record, onAction }: { record: PropertyRecord; onAction: (r:
           {record.city} &bull; {record.price} {record.currency}
         </p>
       </div>
-      <StatusBadge status={record.Status} size="sm" />
+      <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
       <div style={{ display: 'flex', gap: 8 }}>
         <SmallBtn label="موافقة" color="var(--color-success)" onClick={() => onAction(record, 'APPROVED')} />
         <SmallBtn label="رفض" color="var(--color-danger)" onClick={() => onAction(record, 'REJECTED')} />

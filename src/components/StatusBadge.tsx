@@ -27,8 +27,8 @@ interface Props {
 }
 
 export default function StatusBadge({ status, size = 'md' }: Props) {
-  const key = status ?? 'null';
-  const cfg = STATUS_CONFIG[key as keyof typeof STATUS_CONFIG];
+  const key = status === 'APPROVED' || status === 'REJECTED' ? status : 'null';
+  const cfg = STATUS_CONFIG[key];
   const padding = size === 'sm' ? '2px 8px' : '4px 12px';
   const fontSize = size === 'sm' ? 11 : 12;
 
