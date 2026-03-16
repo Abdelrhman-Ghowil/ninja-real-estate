@@ -22,6 +22,67 @@ function normalizeStatus(status: unknown): 'APPROVED' | 'REJECTED' | null {
   return null;
 }
 
+function getGoogleMapEmbedUrlFromQuery(query: string, apiKey: string | null): string {
+  if (apiKey) {
+    return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}`;
+  }
+  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
+}
+
+function getMapPreviewSource(url: string | null | undefined): { embedUrl?: string; query?: string } | null {
+  if (!url) return null;
+  const value = url.trim();
+  if (!value) return null;
+
+  const coords = value.match(/(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (coords) {
+    return { query: `${coords[1]},${coords[2]}` };
+  }
+
+  if (!/^https?:\/\//i.test(value)) {
+    return { query: value };
+  }
+
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { query: value };
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!host.includes('google.') && !host.includes('maps.app.goo.gl') && !host.includes('goo.gl') && !host.includes('g.page')) {
+    return { query: value };
+  }
+
+  if (parsed.pathname.includes('/maps/embed')) return { embedUrl: parsed.toString() };
+
+  const q = parsed.searchParams.get('q')
+    || parsed.searchParams.get('query')
+    || parsed.searchParams.get('destination')
+    || parsed.searchParams.get('daddr');
+  if (q) {
+    return { query: q };
+  }
+
+  const atCoords = parsed.pathname.match(/@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/);
+  if (atCoords) {
+    return { query: `${atCoords[1]},${atCoords[2]}` };
+  }
+
+  const placePath = parsed.pathname.match(/\/place\/([^/]+)/);
+  if (placePath) {
+    const placeName = decodeURIComponent(placePath[1]).replace(/\+/g, ' ');
+    return { query: placeName };
+  }
+
+  if (host.includes('maps.app.goo.gl') || host.includes('goo.gl')) {
+    return null;
+  }
+
+  return { query: `${parsed.pathname}${parsed.search}` };
+}
+
 interface ChatMsg {
   id: string;
   role: 'user' | 'agent';
@@ -99,6 +160,7 @@ export default function ReviewPage() {
   const [weekRange, setWeekRange] = useState<{ start: Date; end: Date } | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [history, setHistory] = useState<{ id: number; prevStatus: 'APPROVED' | 'REJECTED' | null }[]>([]);
+  const [selectedRecord, setSelectedRecord] = useState<PropertyRecord | null>(null);
 
   const normalizedNameFilter = nameFilter.trim().toLowerCase();
 
@@ -126,6 +188,16 @@ export default function ReviewPage() {
 
   const swipeableRecords = (records ?? []).filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
   const currentCard = swipeableRecords[0];
+  const googleMapsApiKey = ((import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined) ?? '').trim() || null;
+  const currentMapQuery = [currentCard?.location, currentCard?.city, currentCard?.region]
+    .filter(Boolean)
+    .join(' ');
+  const mapPreviewSource = getMapPreviewSource(currentCard?.Url_location);
+  const resolvedMapQuery = mapPreviewSource?.query || currentMapQuery || null;
+  const currentMapEmbedUrl = mapPreviewSource?.embedUrl
+    || (resolvedMapQuery ? getGoogleMapEmbedUrlFromQuery(resolvedMapQuery, googleMapsApiKey) : null);
+  const currentMapOpenUrl = currentCard?.Url_location?.trim()
+    || (resolvedMapQuery ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(resolvedMapQuery)}` : null);
 
   function handleAction(record: PropertyRecord, status: 'APPROVED' | 'REJECTED') {
     setHistory((h) => [{ id: record.id, prevStatus: normalizeStatus(record.Status) }, ...h.slice(0, 9)]);
@@ -224,45 +296,139 @@ export default function ReviewPage() {
             ) : swipeableRecords.length === 0 ? (
               <EmptySwipeState />
             ) : (
-              <>
-                <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: 480 }}>
-                  {swipeableRecords.slice(0, 3).reverse().map((record, idx, arr) => {
-                    const isTop = idx === arr.length - 1;
-                    const stackOffset = (arr.length - 1 - idx) * 8;
-                    const stackScale = 1 - (arr.length - 1 - idx) * 0.04;
-                    return (
-                      <motion.div
-                        key={record.id}
-                        style={{ position: 'absolute', width: '100%', zIndex: isTop ? 10 : idx }}
-                        animate={{ y: stackOffset, scale: stackScale }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              <div style={{
+                width: '100%',
+                maxWidth: 1120,
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 20,
+                alignItems: 'flex-start',
+                justifyContent: 'center',
+                direction: 'ltr',
+              }}>
+                <motion.div
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.22 }}
+                  style={{
+                    flex: '1 1 360px',
+                    minWidth: 320,
+                    maxWidth: 560,
+                    background: 'linear-gradient(180deg, rgba(108,99,255,0.14), rgba(108,99,255,0.04))',
+                    border: '1px solid rgba(108,99,255,0.3)',
+                    borderRadius: 'var(--radius-xl)',
+                    padding: 16,
+                    direction: 'rtl',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{
+                        width: 28, height: 28, borderRadius: 8, display: 'inline-flex',
+                        alignItems: 'center', justifyContent: 'center',
+                        background: 'rgba(108,99,255,0.16)', color: 'var(--color-accent)', fontSize: 14,
+                      }}>🗺️</span>
+                      <div>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>موقع العقار</p>
+                        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
+                          {currentCard?.location || 'لا يوجد موقع متاح'}
+                        </p>
+                      </div>
+                    </div>
+                    {currentMapOpenUrl && (
+                      <a
+                        href={currentMapOpenUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: 999,
+                          border: '1px solid var(--color-border)',
+                          background: 'var(--color-surface)',
+                          color: 'var(--color-accent)',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          textDecoration: 'none',
+                          whiteSpace: 'nowrap',
+                        }}
                       >
-                        <SwipeCard record={record} isTop={isTop}
-                          onApprove={() => handleAction(record, 'APPROVED')}
-                          onReject={() => handleAction(record, 'REJECTED')}
-                        />
-                      </motion.div>
-                    );
-                  })}
+                        فتح Google Maps
+                      </a>
+                    )}
+                  </div>
+                  {currentMapEmbedUrl ? (
+                    <iframe
+                      key={currentCard?.id}
+                      src={currentMapEmbedUrl}
+                      title={`خريطة ${currentCard?.location || 'العقار'}`}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      style={{
+                        width: '100%',
+                        height: 300,
+                        border: 0,
+                        borderRadius: 'var(--radius-lg)',
+                        background: 'var(--color-surface-2)',
+                      }}
+                    />
+                  ) : (
+                    <div style={{
+                      height: 300,
+                      borderRadius: 'var(--radius-lg)',
+                      border: '1px dashed var(--color-border)',
+                      background: 'var(--color-surface-2)',
+                      color: 'var(--color-text-muted)',
+                      fontSize: 13,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      textAlign: 'center',
+                      padding: 24,
+                    }}>
+                      لا يمكن عرض الخريطة لهذا الرابط
+                    </div>
+                  )}
+                </motion.div>
+                <div style={{ flex: '1 1 480px', maxWidth: 500, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, direction: 'rtl' }}>
+                  <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: 480 }}>
+                    {swipeableRecords.slice(0, 3).reverse().map((record, idx, arr) => {
+                      const isTop = idx === arr.length - 1;
+                      const stackOffset = (arr.length - 1 - idx) * 8;
+                      const stackScale = 1 - (arr.length - 1 - idx) * 0.04;
+                      return (
+                        <motion.div
+                          key={record.id}
+                          style={{ position: 'absolute', width: '100%', zIndex: isTop ? 10 : idx }}
+                          animate={{ y: stackOffset, scale: stackScale }}
+                          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                        >
+                          <SwipeCard record={record} isTop={isTop}
+                            onApprove={() => handleAction(record, 'APPROVED')}
+                            onReject={() => handleAction(record, 'REJECTED')}
+                          />
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <ActionButton label="رفض" icon="✕" color="var(--color-danger)"
+                      onClick={() => currentCard && handleAction(currentCard, 'REJECTED')} />
+                    <button onClick={handleUndo} disabled={history.length === 0}
+                      style={{
+                        width: 44, height: 44, borderRadius: '50%',
+                        border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+                        color: history.length > 0 ? 'var(--color-text-muted)' : 'var(--color-border)',
+                        cursor: history.length > 0 ? 'pointer' : 'not-allowed',
+                        fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, transition: 'all 0.15s ease',
+                      }} title="تراجع">
+                      ↺
+                    </button>
+                    <ActionButton label="موافقة" icon="✓" color="var(--color-success)"
+                      onClick={() => currentCard && handleAction(currentCard, 'APPROVED')} />
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                  <ActionButton label="رفض" icon="✕" color="var(--color-danger)"
-                    onClick={() => currentCard && handleAction(currentCard, 'REJECTED')} />
-                  <button onClick={handleUndo} disabled={history.length === 0}
-                    style={{
-                      width: 44, height: 44, borderRadius: '50%',
-                      border: '1px solid var(--color-border)', background: 'var(--color-surface)',
-                      color: history.length > 0 ? 'var(--color-text-muted)' : 'var(--color-border)',
-                      cursor: history.length > 0 ? 'pointer' : 'not-allowed',
-                      fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontWeight: 700, transition: 'all 0.15s ease',
-                    }} title="تراجع">
-                    ↺
-                  </button>
-                  <ActionButton label="موافقة" icon="✓" color="var(--color-success)"
-                    onClick={() => currentCard && handleAction(currentCard, 'APPROVED')} />
-                </div>
-              </>
+              </div>
             )}
           </div>
         )}
@@ -280,13 +446,22 @@ export default function ReviewPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {filteredRecords.map((record) => (
-                  <RecordRow key={record.id} record={record} onAction={handleAction} />
+                  <RecordRow key={record.id} record={record} onAction={handleAction} onOpen={() => setSelectedRecord(record)} />
                 ))}
               </div>
             )}
           </div>
         )}
       </div>
+      <AnimatePresence>
+        {selectedRecord && (
+          <RecordDetailsModal
+            record={selectedRecord}
+            onClose={() => setSelectedRecord(null)}
+            onAction={handleAction}
+          />
+        )}
+      </AnimatePresence>
       <ChatWidget />
     </Layout>
   );
@@ -631,13 +806,31 @@ function ActionButton({ label, icon, color, onClick }: { label: string; icon: st
   );
 }
 
-function RecordRow({ record, onAction }: { record: PropertyRecord; onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void }) {
+function RecordRow({
+  record,
+  onAction,
+  onOpen,
+}: {
+  record: PropertyRecord;
+  onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void;
+  onOpen: () => void;
+}) {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
       style={{
         background: 'var(--color-surface)', border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-lg)', padding: '16px 20px',
         display: 'flex', alignItems: 'center', gap: 16,
+        cursor: 'pointer',
       }}
     >
       <div style={{ flex: 1 }}>
@@ -648,19 +841,215 @@ function RecordRow({ record, onAction }: { record: PropertyRecord; onAction: (r:
       </div>
       <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
       <div style={{ display: 'flex', gap: 8 }}>
-        <SmallBtn label="موافقة" color="var(--color-success)" onClick={() => onAction(record, 'APPROVED')} />
-        <SmallBtn label="رفض" color="var(--color-danger)" onClick={() => onAction(record, 'REJECTED')} />
+        <SmallBtn label="موافقة" color="var(--color-success)" onClick={(event) => {
+          event.stopPropagation();
+          onAction(record, 'APPROVED');
+        }} />
+        <SmallBtn label="رفض" color="var(--color-danger)" onClick={(event) => {
+          event.stopPropagation();
+          onAction(record, 'REJECTED');
+        }} />
       </div>
     </motion.div>
   );
 }
 
-function SmallBtn({ label, color, onClick }: { label: string; color: string; onClick: () => void }) {
+function SmallBtn({
+  label,
+  color,
+  onClick,
+}: {
+  label: string;
+  color: string;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
   return (
     <button onClick={onClick} style={{
       padding: '4px 12px', borderRadius: 6, border: `1px solid ${color}`,
       background: 'transparent', color, fontSize: 12, cursor: 'pointer', transition: 'all 0.15s ease',
     }}>{label}</button>
+  );
+}
+
+function RecordDetailsModal({
+  record,
+  onClose,
+  onAction,
+}: {
+  record: PropertyRecord;
+  onClose: () => void;
+  onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void;
+}) {
+  const fields: [string, string][] = [
+    ['الموقع', record.location || '—'],
+    ['رابط الموقع', record.Url_location || '—'],
+    ['المدينة', record.city || '—'],
+    ['المنطقة', record.region || '—'],
+    ['السعر', `${record.price || '—'} ${record.currency || ''}`.trim()],
+    ['المساحة', record.area_m2 ? `${record.area_m2} م²` : '—'],
+    ['مدة العقد', record.contract_duration_years ? `${record.contract_duration_years} سنة` : '—'],
+    ['حالة البناء', record.building_status || '—'],
+    [
+      'الاكتمال المتوقع',
+      record.expected_completion_min_months || record.expected_completion_max_months
+        ? `${record.expected_completion_min_months || '—'} - ${record.expected_completion_max_months || '—'} شهر`
+        : '—',
+    ],
+    ['تاريخ الإضافة', new Date(record.createdAt).toLocaleString('ar-SA')],
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 130,
+        background: 'rgba(0,0,0,0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 12 }}
+        onClick={(event) => event.stopPropagation()}
+        dir="rtl"
+        style={{
+          width: '100%',
+          maxWidth: 680,
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-xl)',
+          padding: 24,
+          boxShadow: '0 24px 80px rgba(0,0,0,0.55)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>تفاصيل العقار</h3>
+          <button
+            onClick={onClose}
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 10,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface-2)',
+              color: 'var(--color-text-muted)',
+              fontSize: 18,
+              cursor: 'pointer',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <StatusBadge status={normalizeStatus(record.Status)} />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 16 }}>
+          {fields.map(([label, value]) => (
+            <div key={label} style={{
+              padding: '11px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface-2)',
+            }}>
+              <p style={{ margin: 0, fontSize: 11, color: 'var(--color-text-muted)' }}>{label}</p>
+              <p style={{ margin: '4px 0 0', fontSize: 14, fontWeight: 600, wordBreak: 'break-word' }}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {record.Url_location && (
+          <a
+            href={record.Url_location}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 16,
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface-2)',
+              color: 'var(--color-accent)',
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            📍 فتح الموقع على الخريطة
+          </a>
+        )}
+
+        {record.raw_text && (
+          <div style={{
+            marginBottom: 18,
+            padding: 14,
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-surface-2)',
+            whiteSpace: 'pre-wrap',
+            lineHeight: 1.8,
+            fontSize: 13,
+            wordBreak: 'break-word',
+          }}>
+            {record.raw_text}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => {
+              onAction(record, 'APPROVED');
+              onClose();
+            }}
+            style={{
+              flex: 1,
+              height: 42,
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: 'var(--color-success)',
+              color: 'white',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            ✓ موافقة
+          </button>
+          <button
+            onClick={() => {
+              onAction(record, 'REJECTED');
+              onClose();
+            }}
+            style={{
+              flex: 1,
+              height: 42,
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: 'var(--color-danger)',
+              color: 'white',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            ✕ رفض
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

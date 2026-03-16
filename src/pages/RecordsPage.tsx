@@ -242,6 +242,7 @@ function RecordModal({ record, onClose, onAction, onDelete }: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fields: [string, string][] = [
     ['الموقع', record.location],
+    ['رابط الموقع', record.Url_location || '—'],
     ['المدينة', record.city],
     ['المنطقة', record.region],
     ['السعر', formatPrice(record.price, record.currency)],
@@ -292,6 +293,30 @@ function RecordModal({ record, onClose, onAction, onDelete }: {
         </div>
 
         <div style={{ marginBottom: 20 }}><StatusBadge status={record.Status} /></div>
+
+        {record.Url_location && (
+          <a
+            href={record.Url_location}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 20,
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface-2)',
+              color: 'var(--color-accent)',
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            📍 فتح الموقع على الخريطة
+          </a>
+        )}
 
         {record.raw_text && (
           <div style={{

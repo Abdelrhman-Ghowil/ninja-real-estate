@@ -112,6 +112,30 @@ export default function SwipeCard({ record, onApprove, onReject, isTop }: Props)
           <InfoCard label="تاريخ الإضافة" value={formatDate(record.createdAt)} />
         </div>
 
+        {record.Url_location && (
+          <a
+            href={record.Url_location}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              marginBottom: 16,
+              padding: '8px 12px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface-2)',
+              color: 'var(--color-accent)',
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            📍 فتح الموقع على الخريطة
+          </a>
+        )}
+
         {/* Raw text toggle */}
         {record.raw_text && (
           <div>
