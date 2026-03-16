@@ -7,6 +7,7 @@ import { useCreateRecord } from '../hooks/useRecords';
 
 const schema = z.object({
   location: z.string().min(1, 'الموقع مطلوب'),
+  Url_location: z.string(),
   city: z.string().min(1, 'المدينة مطلوبة'),
   region: z.string().min(1, 'المنطقة مطلوبة'),
   area_m2: z.string().min(1, 'المساحة مطلوبة'),
@@ -29,6 +30,7 @@ const FIELDS: Array<{
   multiline?: boolean;
 }> = [
   { name: 'location', label: 'الموقع الكامل', placeholder: 'مثال: النعيرية – المنطقة الشرقية', required: true },
+  { name: 'Url_location', label: 'رابط الموقع (Google Maps)', placeholder: 'https://maps.google.com/...' },
   { name: 'city', label: 'المدينة', placeholder: 'مثال: النعيرية', required: true },
   { name: 'region', label: 'المنطقة', placeholder: 'مثال: المنطقة الشرقية', required: true },
   { name: 'area_m2', label: 'المساحة (م²)', placeholder: '1080', required: true },
@@ -53,6 +55,7 @@ export default function SubmitPage() {
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
+      Url_location: '',
       contract_duration_years: '',
       building_status: '',
       expected_completion_min_months: '',

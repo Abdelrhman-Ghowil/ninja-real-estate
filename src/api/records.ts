@@ -3,6 +3,7 @@ import { apiFetch } from './client';
 export interface PropertyRecord {
   id: number;
   location: string;
+  Url_location?: string | null;
   city: string;
   region: string;
   area_m2: string;

@@ -18,6 +18,7 @@ type FormData = z.infer<typeof schema>;
 
 const submitSchema = z.object({
   location: z.string().min(1, 'الموقع مطلوب'),
+  Url_location: z.string(),
   city: z.string().min(1, 'المدينة مطلوبة'),
   region: z.string().min(1, 'المنطقة مطلوبة'),
   area_m2: z.string().min(1, 'المساحة مطلوبة'),
@@ -89,6 +90,7 @@ export default function LoginPage() {
   } = useForm<SubmitData>({
     resolver: zodResolver(submitSchema),
     defaultValues: {
+      Url_location: '',
       contract_duration_years: '',
       building_status: '',
       expected_completion_min_months: '',
@@ -131,6 +133,7 @@ export default function LoginPage() {
     setTimeout(() => setIsRateLimited(false), 10_000);
     await createRecord.mutateAsync({
       location: data.location,
+      Url_location: data.Url_location,
       city: data.city,
       region: data.region,
       area_m2: data.area_m2,
@@ -416,6 +419,8 @@ export default function LoginPage() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                               <Field label="الموقع الكامل" placeholder="مثال: النعيرية – المنطقة الشرقية" required
                                 error={errS.location?.message} inputProps={regS('location')} />
+                              <Field label="رابط الموقع (Google Maps)" placeholder="https://maps.google.com/..."
+                                error={errS.Url_location?.message} inputProps={regS('Url_location')} />
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <Field label="المدينة" placeholder="النعيرية" required
                                   error={errS.city?.message} inputProps={regS('city')} />
