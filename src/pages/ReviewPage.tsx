@@ -161,6 +161,8 @@ export default function ReviewPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [history, setHistory] = useState<{ id: number; prevStatus: 'APPROVED' | 'REJECTED' | null }[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<PropertyRecord | null>(null);
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const [comparisonIds, setComparisonIds] = useState<number[]>([]);
 
   const normalizedNameFilter = nameFilter.trim().toLowerCase();
 
@@ -187,6 +189,9 @@ export default function ReviewPage() {
   });
 
   const swipeableRecords = (records ?? []).filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
+  const comparisonCandidates = filter === 'PENDING' ? swipeableRecords : filteredRecords;
+  const validComparisonIds = comparisonIds.filter((id) => comparisonCandidates.some((record) => record.id === id));
+  const comparisonRecords = comparisonCandidates.filter((record) => validComparisonIds.includes(record.id));
   const currentCard = swipeableRecords[0];
   const googleMapsApiKey = ((import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined) ?? '').trim() || null;
   const currentMapQuery = [currentCard?.location, currentCard?.city, currentCard?.region]
@@ -215,6 +220,32 @@ export default function ReviewPage() {
 
   const pendingCount = (records ?? []).filter((r) => normalizeStatus(r.Status) === null).length;
   const totalCount = records?.length ?? 0;
+
+  function toggleComparisonRecord(recordId: number) {
+    const exists = comparisonCandidates.some((record) => record.id === recordId);
+    if (!exists) return;
+    setComparisonIds((prev) => {
+      if (prev.includes(recordId)) return prev.filter((id) => id !== recordId);
+      const prevValidCount = prev.filter((id) => comparisonCandidates.some((record) => record.id === id)).length;
+      if (prevValidCount >= 5) {
+        toast.error('You can compare up to 5 records');
+        return prev;
+      }
+      return [...prev, recordId];
+    });
+  }
+
+  function activateComparisonMode() {
+    setComparisonMode(true);
+  }
+
+  function exitComparisonMode() {
+    setComparisonMode(false);
+  }
+
+  function clearComparisonSelection() {
+    setComparisonIds([]);
+  }
 
   return (
     <Layout>
@@ -247,20 +278,40 @@ export default function ReviewPage() {
         </div>
 
         <div style={{ marginBottom: 24 }}>
-          <button
-            type="button"
-            onClick={() => setShowFilters((value) => !value)}
-            style={{
-              padding: '7px 16px', borderRadius: 100, border: '1px solid var(--color-border)',
-              background: showFilters ? 'rgba(108,99,255,0.16)' : 'transparent',
-              color: showFilters ? 'var(--color-accent)' : 'var(--color-text-muted)',
-              fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease',
-            }}
-            aria-expanded={showFilters}
-            aria-controls="review-advanced-filters"
-          >
-            {showFilters ? 'إخفاء الفلاتر' : 'إظهار الفلاتر'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setShowFilters((value) => !value)}
+              style={{
+                padding: '7px 16px', borderRadius: 100, border: '1px solid var(--color-border)',
+                background: showFilters ? 'rgba(108,99,255,0.16)' : 'transparent',
+                color: showFilters ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease',
+              }}
+              aria-expanded={showFilters}
+              aria-controls="review-advanced-filters"
+            >
+              {showFilters ? 'إخفاء الفلاتر' : 'إظهار الفلاتر'}
+            </button>
+            {!comparisonMode && (
+              <button
+                type="button"
+                onClick={activateComparisonMode}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 100,
+                  border: '1px solid var(--color-accent)',
+                  background: 'rgba(108,99,255,0.14)',
+                  color: 'var(--color-accent)',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                قارن
+              </button>
+            )}
+          </div>
           {showFilters && (
             <motion.div
               id="review-advanced-filters"
@@ -287,7 +338,176 @@ export default function ReviewPage() {
           )}
         </div>
 
-        {filter === 'PENDING' && (
+        {comparisonMode && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{
+              width: '100%',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-lg)',
+              background: 'var(--color-surface)',
+              padding: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Comparison mode</p>
+                  <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--color-text-muted)' }}>
+                    Select 2 to 5 records to compare
+                  </p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{
+                    borderRadius: 999,
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface-2)',
+                    padding: '6px 10px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: validComparisonIds.length >= 2 ? 'var(--color-success)' : 'var(--color-warning)',
+                  }}>
+                    {validComparisonIds.length} / 5
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearComparisonSelection}
+                    disabled={validComparisonIds.length === 0}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 999,
+                      border: '1px solid var(--color-border)',
+                      background: 'transparent',
+                      color: validComparisonIds.length === 0 ? 'var(--color-border)' : 'var(--color-text-muted)',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: validComparisonIds.length === 0 ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exitComparisonMode}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: 999,
+                      border: '1px solid var(--color-border)',
+                      background: 'var(--color-surface-2)',
+                      color: 'var(--color-text-muted)',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Exit
+                  </button>
+                </div>
+              </div>
+
+              {comparisonCandidates.length === 0 ? (
+                <div style={{
+                  border: '1px dashed var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--color-text-muted)',
+                  textAlign: 'center',
+                  padding: 18,
+                  fontSize: 13,
+                }}>
+                  No records available for comparison
+                </div>
+              ) : (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: 8,
+                }}>
+                  {comparisonCandidates.map((record) => {
+                    const selected = validComparisonIds.includes(record.id);
+                    const disabled = !selected && validComparisonIds.length >= 5;
+                    return (
+                      <button
+                        key={record.id}
+                        type="button"
+                        onClick={() => toggleComparisonRecord(record.id)}
+                        disabled={disabled}
+                        style={{
+                          borderRadius: 'var(--radius-md)',
+                          border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          background: selected ? 'rgba(108,99,255,0.14)' : 'var(--color-surface-2)',
+                          textAlign: 'right',
+                          padding: '9px 10px',
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          opacity: disabled ? 0.55 : 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {record.location || 'No title'}
+                          </p>
+                          <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {record.city || '—'} • {record.price || '—'} {record.currency || ''}
+                          </p>
+                        </div>
+                        <span style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 6,
+                          border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
+                          background: selected ? 'var(--color-accent)' : 'transparent',
+                          color: selected ? '#fff' : 'transparent',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}>
+                          ✓
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {comparisonMode && (
+          <div style={{ marginBottom: 28 }}>
+            {validComparisonIds.length < 2 ? (
+              <div style={{
+                borderRadius: 'var(--radius-lg)',
+                border: '1px dashed var(--color-border)',
+                background: 'var(--color-surface-2)',
+                color: 'var(--color-text-muted)',
+                textAlign: 'center',
+                padding: 26,
+                fontSize: 13,
+                fontWeight: 600,
+              }}>
+                Select at least 2 records to see side-by-side comparison
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 10,
+                alignItems: 'stretch',
+              }}>
+                {comparisonRecords.map((record) => (
+                  <CompareRecordCard key={record.id} record={record} onOpen={() => setSelectedRecord(record)} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!comparisonMode && filter === 'PENDING' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32 }}>
             {isLoading ? (
               <div style={{ width: '100%', maxWidth: 480 }}><Skeleton height={400} /></div>
@@ -433,7 +653,7 @@ export default function ReviewPage() {
           </div>
         )}
 
-        {filter !== 'PENDING' && (
+        {!comparisonMode && filter !== 'PENDING' && (
           <div>
             {isLoading ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -803,6 +1023,85 @@ function ActionButton({ label, icon, color, onClick }: { label: string; icon: st
       <span>{icon}</span>
       <span style={{ fontSize: 11 }}>{label}</span>
     </motion.button>
+  );
+}
+
+function CompareRecordCard({
+  record,
+  onOpen,
+}: {
+  record: PropertyRecord;
+  onOpen: () => void;
+}) {
+  const completion = record.expected_completion_min_months || record.expected_completion_max_months
+    ? `${record.expected_completion_min_months || '—'}-${record.expected_completion_max_months || '—'} mo`
+    : '—';
+
+  const compactFields: [string, string][] = [
+    ['Status', normalizeStatus(record.Status) ?? 'PENDING'],
+    ['Price', `${record.price || '—'} ${record.currency || ''}`.trim()],
+    ['Area', record.area_m2 ? `${record.area_m2} m²` : '—'],
+    ['Contract', record.contract_duration_years ? `${record.contract_duration_years} yrs` : '—'],
+    ['Build', record.building_status || '—'],
+    ['ETA', completion],
+  ];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      style={{
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+        background: 'var(--color-surface)',
+        padding: 10,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        minHeight: 260,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
+        <button
+          type="button"
+          onClick={onOpen}
+          style={{
+            padding: '5px 9px',
+            borderRadius: 8,
+            border: '1px solid var(--color-border)',
+            background: 'var(--color-surface-2)',
+            color: 'var(--color-text-muted)',
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Details
+        </button>
+      </div>
+
+      <div>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>{record.location || 'No location'}</p>
+        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
+          {record.city || '—'} • {record.region || '—'}
+        </p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+        {compactFields.map(([label, value]) => (
+          <div key={label} style={{
+            border: '1px solid var(--color-border)',
+            borderRadius: 8,
+            background: 'var(--color-surface-2)',
+            padding: '6px 8px',
+          }}>
+            <p style={{ margin: 0, fontSize: 10, color: 'var(--color-text-muted)' }}>{label}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: 'var(--color-text)', wordBreak: 'break-word' }}>{value}</p>
+          </div>
+        ))}
+      </div>
+    </motion.div>
   );
 }
 
