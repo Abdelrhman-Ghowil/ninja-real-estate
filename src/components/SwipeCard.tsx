@@ -3,6 +3,7 @@ import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-mo
 import type { PropertyRecord } from '../api/records';
 import StatusBadge from './StatusBadge';
 import { formatPrice, formatArea, formatDate } from '../utils/format';
+import { loadScoringSettings, scoreRecord } from '../utils/recordScoring';
 
 interface Props {
   record: PropertyRecord;
@@ -15,6 +16,7 @@ const SWIPE_THRESHOLD = 100;
 
 export default function SwipeCard({ record, onApprove, onReject, isTop }: Props) {
   const [showRaw, setShowRaw] = useState(false);
+  const score = scoreRecord(record, loadScoringSettings());
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-20, 20]);
   const approveOpacity = useTransform(x, [0, SWIPE_THRESHOLD], [0, 1]);
@@ -93,7 +95,20 @@ export default function SwipeCard({ record, onApprove, onReject, isTop }: Props)
               {record.city} &bull; {record.region}
             </p>
           </div>
-          <StatusBadge status={record.Status} />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+            <StatusBadge status={record.Status} />
+            <div style={{
+              padding: '6px 10px',
+              borderRadius: 10,
+              border: '1px solid rgba(108,99,255,0.35)',
+              background: 'rgba(108,99,255,0.12)',
+              color: 'var(--color-accent)',
+              fontSize: 12,
+              fontWeight: 700,
+            }}>
+              Score {score.totalScore}/{score.maxScore} • {score.percentage}%
+            </div>
+          </div>
         </div>
 
         {/* Info grid */}

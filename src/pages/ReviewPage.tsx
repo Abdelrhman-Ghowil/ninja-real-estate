@@ -7,6 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import Skeleton from '../components/Skeleton';
 import { useRecords, useUpdateRecord } from '../hooks/useRecords';
 import type { PropertyRecord } from '../api/records';
+import { loadScoringSettings, scoreRecord } from '../utils/recordScoring';
 
 type FilterStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 
@@ -425,6 +426,7 @@ export default function ReviewPage() {
                   {comparisonCandidates.map((record) => {
                     const selected = validComparisonIds.includes(record.id);
                     const disabled = !selected && validComparisonIds.length >= 5;
+                    const score = scoreRecord(record, loadScoringSettings());
                     return (
                       <button
                         key={record.id}
@@ -451,6 +453,9 @@ export default function ReviewPage() {
                           </p>
                           <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {record.city || '—'} • {record.price || '—'} {record.currency || ''}
+                          </p>
+                          <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-accent)', fontWeight: 700 }}>
+                            Score: {score.totalScore}/{score.maxScore} ({score.percentage}%)
                           </p>
                         </div>
                         <span style={{
@@ -1033,11 +1038,13 @@ function CompareRecordCard({
   record: PropertyRecord;
   onOpen: () => void;
 }) {
+  const score = scoreRecord(record, loadScoringSettings());
   const completion = record.expected_completion_min_months || record.expected_completion_max_months
     ? `${record.expected_completion_min_months || '—'}-${record.expected_completion_max_months || '—'} mo`
     : '—';
 
   const compactFields: [string, string][] = [
+    ['Final score', `${score.totalScore}/${score.maxScore} (${score.percentage}%)`],
     ['Status', normalizeStatus(record.Status) ?? 'PENDING'],
     ['Price', `${record.price || '—'} ${record.currency || ''}`.trim()],
     ['Area', record.area_m2 ? `${record.area_m2} m²` : '—'],
@@ -1062,7 +1069,20 @@ function CompareRecordCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
+          <span style={{
+            padding: '4px 8px',
+            borderRadius: 999,
+            border: '1px solid rgba(108,99,255,0.35)',
+            background: 'rgba(108,99,255,0.12)',
+            color: 'var(--color-accent)',
+            fontSize: 10,
+            fontWeight: 700,
+          }}>
+            {score.totalScore}/{score.maxScore}
+          </span>
+        </div>
         <button
           type="button"
           onClick={onOpen}
@@ -1114,6 +1134,7 @@ function RecordRow({
   onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void;
   onOpen: () => void;
 }) {
+  const score = scoreRecord(record, loadScoringSettings());
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       onClick={onOpen}
@@ -1138,6 +1159,17 @@ function RecordRow({
           {record.city} &bull; {record.price} {record.currency}
         </p>
       </div>
+      <span style={{
+        padding: '5px 9px',
+        borderRadius: 999,
+        border: '1px solid rgba(108,99,255,0.35)',
+        background: 'rgba(108,99,255,0.12)',
+        color: 'var(--color-accent)',
+        fontSize: 11,
+        fontWeight: 700,
+      }}>
+        {score.totalScore}/{score.maxScore}
+      </span>
       <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
       <div style={{ display: 'flex', gap: 8 }}>
         <SmallBtn label="موافقة" color="var(--color-success)" onClick={(event) => {
@@ -1179,6 +1211,7 @@ function RecordDetailsModal({
   onClose: () => void;
   onAction: (r: PropertyRecord, s: 'APPROVED' | 'REJECTED') => void;
 }) {
+  const score = scoreRecord(record, loadScoringSettings());
   const fields: [string, string][] = [
     ['الموقع', record.location || '—'],
     ['رابط الموقع', record.Url_location || '—'],
@@ -1195,6 +1228,7 @@ function RecordDetailsModal({
         : '—',
     ],
     ['تاريخ الإضافة', new Date(record.createdAt).toLocaleString('ar-SA')],
+    ['الدرجة النهائية', `${score.totalScore}/${score.maxScore} (${score.percentage}%)`],
   ];
 
   return (

@@ -7,6 +7,7 @@ import Skeleton from '../components/Skeleton';
 import { useRecords, useUpdateRecord, useDeleteRecord } from '../hooks/useRecords';
 import type { PropertyRecord } from '../api/records';
 import { formatPrice, formatArea, formatDate } from '../utils/format';
+import { loadScoringSettings, scoreRecord } from '../utils/recordScoring';
 
 type StatusFilter = 'ALL' | 'APPROVED' | 'REJECTED' | 'PENDING';
 
@@ -161,6 +162,7 @@ function RecordCard({ record, onAction, onDelete, onSelect }: {
   onSelect: (r: PropertyRecord) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const score = scoreRecord(record, loadScoringSettings());
 
   function handleDeleteClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -188,7 +190,20 @@ function RecordCard({ record, onAction, onDelete, onSelect }: {
           <p style={{ margin: 0, fontWeight: 600, fontSize: 15 }}>{record.location}</p>
           <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-muted)' }}>{record.city} &bull; {record.region}</p>
         </div>
-        <StatusBadge status={record.Status} size="sm" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <StatusBadge status={record.Status} size="sm" />
+          <span style={{
+            padding: '4px 8px',
+            borderRadius: 999,
+            border: '1px solid rgba(108,99,255,0.35)',
+            background: 'rgba(108,99,255,0.12)',
+            color: 'var(--color-accent)',
+            fontSize: 11,
+            fontWeight: 700,
+          }}>
+            {score.totalScore}/{score.maxScore}
+          </span>
+        </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 16 }}>
@@ -240,6 +255,7 @@ function RecordModal({ record, onClose, onAction, onDelete }: {
   onDelete: (r: PropertyRecord) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const score = scoreRecord(record, loadScoringSettings());
   const fields: [string, string][] = [
     ['الموقع', record.location],
     ['رابط الموقع', record.Url_location || '—'],
@@ -251,6 +267,7 @@ function RecordModal({ record, onClose, onAction, onDelete }: {
     ['حالة البناء', record.building_status],
     ['الاكتمال المتوقع', `${record.expected_completion_min_months}–${record.expected_completion_max_months} أشهر`],
     ['تاريخ الإضافة', formatDate(record.createdAt)],
+    ['الدرجة النهائية', `${score.totalScore}/${score.maxScore} (${score.percentage}%)`],
   ];
 
   return (
