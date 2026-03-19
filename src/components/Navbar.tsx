@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { logout, getUsername, canAccessRecords } from '../utils/auth';
 
@@ -11,6 +12,8 @@ export default function Navbar() {
   const location = useLocation();
   const username = getUsername();
   const recordsAccess = canAccessRecords();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const navLinks = ALL_NAV_LINKS.filter(
     (link) => !link.requiresRecordsAccess || recordsAccess
@@ -20,6 +23,17 @@ export default function Navbar() {
     logout();
     navigate('/login');
   }
+
+  useEffect(() => {
+    function handleOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    window.addEventListener('mousedown', handleOutside);
+    return () => window.removeEventListener('mousedown', handleOutside);
+  }, []);
 
   return (
     <header
@@ -79,35 +93,91 @@ export default function Navbar() {
         </nav>
 
         {/* User menu */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
-            {username}
-          </span>
+        <div ref={menuRef} style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
           <button
-            onClick={handleLogout}
+            onClick={() => setMenuOpen((prev) => !prev)}
             style={{
-              padding: '6px 14px',
-              borderRadius: 8,
+              padding: '8px 14px',
+              borderRadius: 10,
               border: '1px solid var(--color-border)',
-              background: 'transparent',
-              color: 'var(--color-text-muted)',
+              background: menuOpen ? 'rgba(108,99,255,0.12)' : 'var(--color-surface-2)',
+              color: menuOpen ? 'var(--color-accent)' : 'var(--color-text)',
               fontSize: 13,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
               transition: 'all 0.15s ease',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-danger)';
-              e.currentTarget.style.color = 'var(--color-danger)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-border)';
-              e.currentTarget.style.color = 'var(--color-text-muted)';
-            }}
           >
-            تسجيل خروج
+            <span style={{
+              width: 24,
+              height: 24,
+              borderRadius: 8,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(108,99,255,0.16)',
+              fontSize: 12,
+              fontWeight: 700,
+              color: 'var(--color-accent)',
+            }}>
+              {username?.slice(0, 1).toUpperCase() || 'U'}
+            </span>
+            <span>{username || 'Account'}</span>
+            <span style={{ fontSize: 11, transform: menuOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s ease' }}>⌄</span>
           </button>
+
+          {menuOpen && (
+            <div style={{
+              position: 'absolute',
+              top: 'calc(100% + 10px)',
+              right: 0,
+              minWidth: 180,
+              borderRadius: 12,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.35)',
+              padding: 8,
+              display: 'grid',
+              gap: 6,
+              zIndex: 120,
+            }}>
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate('/settings');
+                }}
+                style={menuItemStyle}
+              >
+                ⚙️ إعدادات التقييم
+              </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleLogout();
+                }}
+                style={{ ...menuItemStyle, color: 'var(--color-danger)' }}
+              >
+                تسجيل خروج
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
   );
 }
+
+const menuItemStyle: React.CSSProperties = {
+  width: '100%',
+  textAlign: 'right',
+  padding: '9px 10px',
+  borderRadius: 8,
+  border: '1px solid var(--color-border)',
+  background: 'var(--color-surface-2)',
+  color: 'var(--color-text)',
+  cursor: 'pointer',
+  fontSize: 13,
+  fontWeight: 600,
+};

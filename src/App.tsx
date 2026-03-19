@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage';
 import ReviewPage from './pages/ReviewPage';
 import RecordsPage from './pages/RecordsPage';
 import SubmitPage from './pages/SubmitPage';
+import SettingsPage from './pages/SettingsPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { isAuthenticated, canAccessRecords } from './utils/auth';
 
@@ -39,6 +40,14 @@ export default function App() {
             }
           />
           <Route path="/records" element={<RecordsRoute />} />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/review" replace />} />
         </Routes>
         <Toaster
