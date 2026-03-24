@@ -181,7 +181,9 @@ export default function ReviewPage() {
     return matchesName && createdAt >= weekRange.start && createdAt < weekRange.end;
   };
 
-  const filteredRecords = (records ?? []).filter((r) => {
+  const allRecords = records ?? [];
+
+  const filteredRecords = allRecords.filter((r) => {
     const status = normalizeStatus(r.Status);
     if (filter === 'PENDING') return status === null;
     if (filter === 'APPROVED') return status === 'APPROVED' && matchesAdvancedFilters(r);
@@ -189,10 +191,12 @@ export default function ReviewPage() {
     return matchesAdvancedFilters(r);
   });
 
-  const swipeableRecords = (records ?? []).filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
+  const swipeableRecords = allRecords.filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
   const comparisonCandidates = filter === 'PENDING' ? swipeableRecords : filteredRecords;
-  const validComparisonIds = comparisonIds.filter((id) => comparisonCandidates.some((record) => record.id === id));
-  const comparisonRecords = comparisonCandidates.filter((record) => validComparisonIds.includes(record.id));
+  const validComparisonIds = comparisonIds.filter((id) => allRecords.some((record) => record.id === id));
+  const comparisonRecords = validComparisonIds
+    .map((id) => allRecords.find((record) => record.id === id))
+    .filter((record): record is PropertyRecord => Boolean(record));
   const currentCard = swipeableRecords[0];
   const googleMapsApiKey = ((import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined) ?? '').trim() || null;
   const currentMapQuery = [currentCard?.location, currentCard?.city, currentCard?.region]
@@ -227,7 +231,7 @@ export default function ReviewPage() {
     if (!exists) return;
     setComparisonIds((prev) => {
       if (prev.includes(recordId)) return prev.filter((id) => id !== recordId);
-      const prevValidCount = prev.filter((id) => comparisonCandidates.some((record) => record.id === id)).length;
+      const prevValidCount = prev.filter((id) => allRecords.some((record) => record.id === id)).length;
       if (prevValidCount >= 5) {
         toast.error('You can compare up to 5 records');
         return prev;
@@ -246,6 +250,11 @@ export default function ReviewPage() {
 
   function clearComparisonSelection() {
     setComparisonIds([]);
+  }
+
+  function clearAdvancedFilters() {
+    setNameFilter('');
+    setWeekRange(null);
   }
 
   return (
@@ -294,24 +303,23 @@ export default function ReviewPage() {
             >
               {showFilters ? 'إخفاء الفلاتر' : 'إظهار الفلاتر'}
             </button>
-            {!comparisonMode && (
-              <button
-                type="button"
-                onClick={activateComparisonMode}
-                style={{
-                  padding: '7px 16px',
-                  borderRadius: 100,
-                  border: '1px solid var(--color-accent)',
-                  background: 'rgba(108,99,255,0.14)',
-                  color: 'var(--color-accent)',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                قارن
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={comparisonMode ? exitComparisonMode : activateComparisonMode}
+              style={{
+                padding: '7px 16px',
+                borderRadius: 100,
+                border: comparisonMode ? '1px solid var(--color-border)' : '1px solid var(--color-accent)',
+                background: comparisonMode ? 'var(--color-surface-2)' : 'rgba(108,99,255,0.14)',
+                color: comparisonMode ? 'var(--color-text-muted)' : 'var(--color-accent)',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {comparisonMode ? 'اخفاء المقارنة' : 'قارن'}
+            </button>
           </div>
           {showFilters && (
             <motion.div
@@ -334,7 +342,34 @@ export default function ReviewPage() {
                 onChange={(e) => setNameFilter(e.target.value)}
                 style={{ minHeight: 42 }}
               />
-              <WeekPicker value={weekRange} onChange={setWeekRange} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, direction: 'ltr' }}>
+                <button
+                  type="button"
+                  onClick={clearAdvancedFilters}
+                  disabled={!nameFilter.trim() && !weekRange}
+                  aria-label="مسح الفلاتر"
+                  title="مسح الفلاتر"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 999,
+                    border: '1px solid var(--color-border)',
+                    background: 'var(--color-surface-2)',
+                    color: 'var(--color-text-muted)',
+                    fontSize: 16,
+                    fontWeight: 700,
+                    cursor: !nameFilter.trim() && !weekRange ? 'not-allowed' : 'pointer',
+                    opacity: !nameFilter.trim() && !weekRange ? 0.5 : 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+                <WeekPicker value={weekRange} onChange={setWeekRange} />
+              </div>
             </motion.div>
           )}
         </div>
