@@ -187,14 +187,11 @@ export default function LoginPage() {
       >
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 16,
-            background: 'linear-gradient(135deg, var(--color-accent), #a78bfa)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 24, fontWeight: 700, color: 'white',
-            margin: '0 auto 16px',
-            boxShadow: '0 8px 24px rgba(108,99,255,0.3)',
-          }}>N</div>
+          <img
+            src="/brand-logo.svg"
+            alt="Ninja Real Estate"
+            style={{ width: 220, maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto 18px' }}
+          />
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--color-text)' }}>
             Ninja Real Estate
           </h1>

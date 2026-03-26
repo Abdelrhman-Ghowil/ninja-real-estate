@@ -160,10 +160,11 @@ export default function ReviewPage() {
   const [nameFilter, setNameFilter] = useState('');
   const [weekRange, setWeekRange] = useState<{ start: Date; end: Date } | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [history, setHistory] = useState<{ id: number; prevStatus: 'APPROVED' | 'REJECTED' | null }[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<PropertyRecord | null>(null);
   const [comparisonMode, setComparisonMode] = useState(false);
   const [comparisonIds, setComparisonIds] = useState<number[]>([]);
+  const [visibleMapRecordId, setVisibleMapRecordId] = useState<number | null>(null);
+  const [skippedRecordIds, setSkippedRecordIds] = useState<number[]>([]);
 
   const normalizedNameFilter = nameFilter.trim().toLowerCase();
 
@@ -191,7 +192,19 @@ export default function ReviewPage() {
     return matchesAdvancedFilters(r);
   });
 
-  const swipeableRecords = allRecords.filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
+  const swipeableRecords = useMemo(() => {
+    const pendingRecords = allRecords.filter((r) => normalizeStatus(r.Status) === null && matchesAdvancedFilters(r));
+    if (pendingRecords.length <= 1) return pendingRecords;
+
+    const pendingById = new Map(pendingRecords.map((record) => [record.id, record]));
+    const normalizedSkippedIds = skippedRecordIds.filter((id) => pendingById.has(id));
+    const skippedIdSet = new Set(normalizedSkippedIds);
+
+    return [
+      ...pendingRecords.filter((record) => !skippedIdSet.has(record.id)),
+      ...normalizedSkippedIds.map((id) => pendingById.get(id)).filter((record): record is PropertyRecord => Boolean(record)),
+    ];
+  }, [allRecords, matchesAdvancedFilters, skippedRecordIds]);
   const comparisonCandidates = filter === 'PENDING' ? swipeableRecords : filteredRecords;
   const validComparisonIds = comparisonIds.filter((id) => allRecords.some((record) => record.id === id));
   const comparisonRecords = validComparisonIds
@@ -208,19 +221,22 @@ export default function ReviewPage() {
     || (resolvedMapQuery ? getGoogleMapEmbedUrlFromQuery(resolvedMapQuery, googleMapsApiKey) : null);
   const currentMapOpenUrl = currentCard?.Url_location?.trim()
     || (resolvedMapQuery ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(resolvedMapQuery)}` : null);
+  const hasMapPreview = Boolean(currentMapEmbedUrl || currentMapOpenUrl || currentCard?.location);
+  const isCurrentMapVisible = currentCard?.id != null && visibleMapRecordId === currentCard.id;
 
   function handleAction(record: PropertyRecord, status: 'APPROVED' | 'REJECTED') {
-    setHistory((h) => [{ id: record.id, prevStatus: normalizeStatus(record.Status) }, ...h.slice(0, 9)]);
+    setSkippedRecordIds((prev) => prev.filter((id) => id !== record.id));
     updateRecord.mutate({ id: record.id, data: { Status: status } });
     toast.success(status === 'APPROVED' ? 'تمت الموافقة' : 'تم الرفض', { duration: 2000 });
   }
 
-  function handleUndo() {
-    const last = history[0];
-    if (!last) return;
-    setHistory((h) => h.slice(1));
-    updateRecord.mutate({ id: last.id, data: { Status: last.prevStatus } });
-    toast.info('تم التراجع');
+  function handleNextRecord() {
+    if (!currentCard || swipeableRecords.length <= 1) return;
+    setVisibleMapRecordId(null);
+    setSkippedRecordIds((prev) => {
+      const nextIds = prev.filter((id) => id !== currentCard.id);
+      return [...nextIds, currentCard.id];
+    });
   }
 
   const pendingCount = (records ?? []).filter((r) => normalizeStatus(r.Status) === null).length;
@@ -534,14 +550,12 @@ export default function ReviewPage() {
               </div>
             ) : (
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: 10,
-                alignItems: 'stretch',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                overflow: 'hidden',
               }}>
-                {comparisonRecords.map((record) => (
-                  <CompareRecordCard key={record.id} record={record} onOpen={() => setSelectedRecord(record)} />
-                ))}
+                <CompareRecordsTable records={comparisonRecords} onOpenRecord={setSelectedRecord} />
               </div>
             )}
           </div>
@@ -556,101 +570,140 @@ export default function ReviewPage() {
             ) : swipeableRecords.length === 0 ? (
               <EmptySwipeState />
             ) : (
-              <div style={{
-                width: '100%',
-                maxWidth: 1120,
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 20,
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                direction: 'ltr',
-              }}>
-                <motion.div
-                  initial={{ opacity: 0, x: -12 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.22 }}
-                  style={{
-                    flex: '1 1 360px',
-                    minWidth: 320,
-                    maxWidth: 560,
-                    background: 'linear-gradient(180deg, rgba(108,99,255,0.14), rgba(108,99,255,0.04))',
-                    border: '1px solid rgba(108,99,255,0.3)',
-                    borderRadius: 'var(--radius-xl)',
-                    padding: 16,
-                    direction: 'rtl',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{
-                        width: 28, height: 28, borderRadius: 8, display: 'inline-flex',
-                        alignItems: 'center', justifyContent: 'center',
-                        background: 'rgba(108,99,255,0.16)', color: 'var(--color-accent)', fontSize: 14,
-                      }}>🗺️</span>
-                      <div>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>موقع العقار</p>
-                        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
-                          {currentCard?.location || 'لا يوجد موقع متاح'}
-                        </p>
-                      </div>
-                    </div>
-                    {currentMapOpenUrl && (
-                      <a
-                        href={currentMapOpenUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: 999,
-                          border: '1px solid var(--color-border)',
-                          background: 'var(--color-surface)',
-                          color: 'var(--color-accent)',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          textDecoration: 'none',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        فتح Google Maps
-                      </a>
-                    )}
-                  </div>
-                  {currentMapEmbedUrl ? (
-                    <iframe
-                      key={currentCard?.id}
-                      src={currentMapEmbedUrl}
-                      title={`خريطة ${currentCard?.location || 'العقار'}`}
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                      style={{
-                        width: '100%',
-                        height: 300,
-                        border: 0,
-                        borderRadius: 'var(--radius-lg)',
-                        background: 'var(--color-surface-2)',
-                      }}
-                    />
-                  ) : (
-                    <div style={{
-                      height: 300,
-                      borderRadius: 'var(--radius-lg)',
-                      border: '1px dashed var(--color-border)',
-                      background: 'var(--color-surface-2)',
-                      color: 'var(--color-text-muted)',
-                      fontSize: 13,
-                      display: 'flex',
+              <div style={{ width: '100%', maxWidth: 1120, display: 'grid', gap: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'center', direction: 'rtl' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!currentCard?.id) return;
+                      setVisibleMapRecordId((value) => (value === currentCard.id ? null : currentCard.id));
+                    }}
+                    disabled={!hasMapPreview}
+                    style={{
+                      display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      textAlign: 'center',
-                      padding: 24,
-                    }}>
-                      لا يمكن عرض الخريطة لهذا الرابط
-                    </div>
-                  )}
-                </motion.div>
-                <div style={{ flex: '1 1 480px', maxWidth: 500, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, direction: 'rtl' }}>
-                  <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: 480 }}>
+                      gap: 8,
+                      minHeight: 42,
+                      padding: '10px 16px',
+                      borderRadius: 999,
+                      border: isCurrentMapVisible ? '1px solid rgba(108,99,255,0.38)' : '1px solid var(--color-border)',
+                      background: isCurrentMapVisible ? 'rgba(108,99,255,0.12)' : 'var(--color-surface)',
+                      color: hasMapPreview ? 'var(--color-text)' : 'var(--color-text-muted)',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: hasMapPreview ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.18s ease',
+                      boxShadow: isCurrentMapVisible ? '0 14px 28px rgba(108,99,255,0.12)' : 'none',
+                    }}
+                  >
+                    <span aria-hidden="true">{isCurrentMapVisible ? '🙈' : '🗺️'}</span>
+                    {isCurrentMapVisible ? 'إخفاء الموقع' : 'عرض الموقع على الخريطة'}
+                  </button>
+                </div>
+                <div style={{
+                  width: '100%',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 20,
+                  alignItems: 'flex-start',
+                  justifyContent: 'center',
+                  direction: 'ltr',
+                }}>
+                  <AnimatePresence initial={false}>
+                    {isCurrentMapVisible && (
+                      <motion.div
+                        key={currentCard?.id}
+                        initial={{ opacity: 0, x: -16, scale: 0.98 }}
+                        animate={{ opacity: 1, x: 0, scale: 1 }}
+                        exit={{ opacity: 0, x: -16, scale: 0.98 }}
+                        transition={{ duration: 0.22 }}
+                        style={{
+                          flex: '1 1 360px',
+                          minWidth: 320,
+                          maxWidth: 560,
+                          direction: 'rtl',
+                        }}
+                      >
+                        <div style={{
+                          background: 'linear-gradient(180deg, rgba(108,99,255,0.14), rgba(108,99,255,0.04))',
+                          border: '1px solid rgba(108,99,255,0.3)',
+                          borderRadius: 'var(--radius-xl)',
+                          padding: 16,
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{
+                                width: 28, height: 28, borderRadius: 8, display: 'inline-flex',
+                                alignItems: 'center', justifyContent: 'center',
+                                background: 'rgba(108,99,255,0.16)', color: 'var(--color-accent)', fontSize: 14,
+                              }}>🗺️</span>
+                              <div>
+                                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>موقع العقار</p>
+                                <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
+                                  {currentCard?.location || 'لا يوجد موقع متاح'}
+                                </p>
+                              </div>
+                            </div>
+                            {currentMapOpenUrl && (
+                              <a
+                                href={currentMapOpenUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  padding: '6px 12px',
+                                  borderRadius: 999,
+                                  border: '1px solid var(--color-border)',
+                                  background: 'var(--color-surface)',
+                                  color: 'var(--color-accent)',
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  textDecoration: 'none',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                فتح Google Maps
+                              </a>
+                            )}
+                          </div>
+                          {currentMapEmbedUrl ? (
+                            <iframe
+                              key={currentCard?.id}
+                              src={currentMapEmbedUrl}
+                              title={`خريطة ${currentCard?.location || 'العقار'}`}
+                              loading="lazy"
+                              referrerPolicy="no-referrer-when-downgrade"
+                              style={{
+                                width: '100%',
+                                height: 300,
+                                border: 0,
+                                borderRadius: 'var(--radius-lg)',
+                                background: 'var(--color-surface-2)',
+                              }}
+                            />
+                          ) : (
+                            <div style={{
+                              height: 300,
+                              borderRadius: 'var(--radius-lg)',
+                              border: '1px dashed var(--color-border)',
+                              background: 'var(--color-surface-2)',
+                              color: 'var(--color-text-muted)',
+                              fontSize: 13,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              textAlign: 'center',
+                              padding: 24,
+                            }}>
+                              لا يمكن عرض الخريطة لهذا الرابط
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <div style={{ flex: '1 1 480px', maxWidth: 500, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, direction: 'rtl' }}>
+                    <div style={{ position: 'relative', width: '100%', maxWidth: 480, height: 480 }}>
                     {swipeableRecords.slice(0, 3).reverse().map((record, idx, arr) => {
                       const isTop = idx === arr.length - 1;
                       const stackOffset = (arr.length - 1 - idx) * 8;
@@ -670,22 +723,23 @@ export default function ReviewPage() {
                       );
                     })}
                   </div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
                     <ActionButton label="رفض" icon="✕" color="var(--color-danger)"
                       onClick={() => currentCard && handleAction(currentCard, 'REJECTED')} />
-                    <button onClick={handleUndo} disabled={history.length === 0}
+                    <button onClick={handleNextRecord} disabled={swipeableRecords.length <= 1}
                       style={{
                         width: 44, height: 44, borderRadius: '50%',
                         border: '1px solid var(--color-border)', background: 'var(--color-surface)',
-                        color: history.length > 0 ? 'var(--color-text-muted)' : 'var(--color-border)',
-                        cursor: history.length > 0 ? 'pointer' : 'not-allowed',
+                        color: swipeableRecords.length > 1 ? 'var(--color-text-muted)' : 'var(--color-border)',
+                        cursor: swipeableRecords.length > 1 ? 'pointer' : 'not-allowed',
                         fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontWeight: 700, transition: 'all 0.15s ease',
-                      }} title="تراجع">
-                      ↺
+                      }} title="السجل التالي">
+                      ↷
                     </button>
                     <ActionButton label="موافقة" icon="✓" color="var(--color-success)"
                       onClick={() => currentCard && handleAction(currentCard, 'APPROVED')} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -728,325 +782,7 @@ export default function ReviewPage() {
 }
 
 function ChatWidget() {
-  const [open, setOpen] = useState(false);
-  const [input, setInput] = useState('');
-  const [hasUnread, setHasUnread] = useState(true);
-  const { msgs, loading, send, showQuick } = useChatSession();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
-      setTimeout(() => inputRef.current?.focus(), 120);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
-    }
-  }, [msgs, loading, open]);
-
-  function handleSend() {
-    const text = input.trim();
-    if (!text || loading) return;
-    setInput('');
-    send(text);
-  }
-
-  function handleKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-  }
-
-  function fmtTime(d: Date) {
-    return d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' });
-  }
-
-  return (
-    <>
-      <style>{`
-        @keyframes pulse-ring {
-          0% { transform: scale(1); opacity: 0.6; }
-          100% { transform: scale(1.55); opacity: 0; }
-        }
-        @keyframes dot-bounce {
-          0%, 60%, 100% { transform: translateY(0); }
-          30% { transform: translateY(-5px); }
-        }
-        .chat-input:focus { outline: none; border-color: var(--color-accent) !important; }
-        .chat-send:hover { background: #5a52e0 !important; }
-        .quick-chip:hover { background: rgba(108,99,255,0.2) !important; border-color: var(--color-accent) !important; }
-      `}</style>
-      <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 12 }}>
-        <AnimatePresence>
-          {open && (
-            <motion.div
-              key="panel"
-              initial={{ opacity: 0, scale: 0.85, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.85, y: 20 }}
-              transition={{ type: 'spring', stiffness: 360, damping: 28 }}
-              dir="rtl"
-              style={{
-                width: 'min(380px, calc(100vw - 48px))',
-                height: 'min(520px, calc(100vh - 120px))',
-                background: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 20,
-                boxShadow: '0 32px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(108,99,255,0.1)',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden',
-                transformOrigin: 'bottom right',
-              }}
-            >
-              <div style={{
-                background: 'linear-gradient(135deg, var(--color-accent) 0%, #a78bfa 100%)',
-                padding: '16px 18px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                flexShrink: 0,
-              }}>
-                <div style={{
-                  width: 42, height: 42, borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.2)',
-                  border: '2px solid rgba(255,255,255,0.35)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 20, flexShrink: 0,
-                }}>🤖</div>
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'white' }}>مساعد Ninja الذكي</p>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 6px #4ade80' }} />
-                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)' }}>متصل الآن</span>
-                  </div>
-                </div>
-                <button onClick={() => setOpen(false)} style={{
-                  width: 30, height: 30, borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.15)', border: 'none',
-                  color: 'white', cursor: 'pointer', fontSize: 14,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0,
-                }}>✕</button>
-              </div>
-              <div style={{
-                flex: 1,
-                overflowY: 'auto',
-                padding: '16px 14px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-                scrollbarWidth: 'thin',
-                scrollbarColor: 'var(--color-border) transparent',
-              }}>
-                {msgs.map(msg => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.2 }}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: msg.role === 'agent' ? 'flex-start' : 'flex-end',
-                      gap: 4,
-                    }}
-                  >
-                    <div style={{
-                      maxWidth: '82%',
-                      padding: '10px 14px',
-                      borderRadius: msg.role === 'agent'
-                        ? '4px 16px 16px 16px'
-                        : '16px 4px 16px 16px',
-                      background: msg.role === 'agent'
-                        ? 'var(--color-surface-2)'
-                        : 'linear-gradient(135deg, var(--color-accent), #a78bfa)',
-                      color: msg.role === 'agent' ? 'var(--color-text)' : 'white',
-                      fontSize: 13,
-                      lineHeight: 1.65,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                      border: msg.role === 'agent' ? '1px solid var(--color-border)' : 'none',
-                      boxShadow: msg.role === 'user' ? '0 4px 12px rgba(108,99,255,0.3)' : 'none',
-                    }}>
-                      {msg.text}
-                    </div>
-                    <span style={{ fontSize: 10, color: 'var(--color-text-muted)', padding: '0 4px' }}>
-                      {fmtTime(msg.ts)}
-                    </span>
-                  </motion.div>
-                ))}
-                <AnimatePresence>
-                  {loading && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                      style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}
-                    >
-                      <div style={{
-                        padding: '12px 16px',
-                        borderRadius: '4px 16px 16px 16px',
-                        background: 'var(--color-surface-2)',
-                        border: '1px solid var(--color-border)',
-                        display: 'flex', gap: 5, alignItems: 'center',
-                      }}>
-                        {[0, 1, 2].map(i => (
-                          <div key={i} style={{
-                            width: 7, height: 7, borderRadius: '50%',
-                            background: 'var(--color-accent)',
-                            animation: `dot-bounce 1.2s ease-in-out ${i * 0.15}s infinite`,
-                          }} />
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                <AnimatePresence>
-                  {showQuick && !loading && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
-                      style={{ display: 'flex', flexWrap: 'wrap', gap: 6, paddingTop: 4 }}
-                    >
-                      {QUICK_REPLIES.map(q => (
-                        <button
-                          key={q}
-                          className="quick-chip"
-                          onClick={() => send(q)}
-                          style={{
-                            padding: '6px 12px', borderRadius: 100, cursor: 'pointer',
-                            border: '1px solid var(--color-border)',
-                            background: 'rgba(108,99,255,0.08)',
-                            color: 'var(--color-accent)',
-                            fontSize: 11, fontWeight: 600, fontFamily: 'inherit',
-                            transition: 'all 0.15s ease',
-                          }}
-                        >{q}</button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                <div ref={bottomRef} />
-              </div>
-              <div style={{
-                padding: '12px 14px',
-                borderTop: '1px solid var(--color-border)',
-                display: 'flex',
-                gap: 8,
-                flexShrink: 0,
-                background: 'var(--color-surface)',
-              }}>
-                <input
-                  ref={inputRef}
-                  className="chat-input"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKey}
-                  placeholder="اكتب رسالتك..."
-                  disabled={loading}
-                  style={{
-                    flex: 1,
-                    padding: '10px 14px',
-                    borderRadius: 12,
-                    border: '1.5px solid var(--color-border)',
-                    background: 'var(--color-surface-2)',
-                    color: 'var(--color-text)',
-                    fontSize: 13,
-                    fontFamily: 'inherit',
-                    direction: 'rtl',
-                    transition: 'border-color 0.15s ease',
-                  }}
-                />
-                <motion.button
-                  className="chat-send"
-                  onClick={handleSend}
-                  disabled={!input.trim() || loading}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.93 }}
-                  style={{
-                    width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-                    background: (!input.trim() || loading) ? 'var(--color-surface-2)' : 'var(--color-accent)',
-                    border: 'none',
-                    color: (!input.trim() || loading) ? 'var(--color-text-muted)' : 'white',
-                    cursor: (!input.trim() || loading) ? 'not-allowed' : 'pointer',
-                    fontSize: 16,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'all 0.15s ease',
-                  }}
-                  aria-label="إرسال"
-                >
-                  ←
-                </motion.button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div style={{ position: 'relative' }}>
-          {!open && (
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: '50%',
-              background: 'var(--color-accent)',
-              animation: 'pulse-ring 2s ease-out infinite',
-            }} />
-          )}
-          <motion.button
-            onClick={() => {
-              setOpen((prev) => {
-                const next = !prev;
-                if (next) setHasUnread(false);
-                return next;
-              });
-            }}
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.92 }}
-            title={open ? 'إغلاق المحادثة' : 'تحدث مع مساعدنا'}
-            style={{
-              position: 'relative',
-              width: 58, height: 58, borderRadius: '50%',
-              background: open
-                ? 'var(--color-surface-2)'
-                : 'linear-gradient(135deg, var(--color-accent) 0%, #a78bfa 100%)',
-              border: open ? '1.5px solid var(--color-border)' : 'none',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: open ? 20 : 26,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: open ? 'none' : '0 8px 24px rgba(108,99,255,0.45)',
-              transition: 'background 0.2s ease, box-shadow 0.2s ease',
-            }}
-          >
-            <AnimatePresence mode="wait">
-              <motion.span
-                key={open ? 'close' : 'open'}
-                initial={{ scale: 0.5, rotate: -90, opacity: 0 }}
-                animate={{ scale: 1, rotate: 0, opacity: 1 }}
-                exit={{ scale: 0.5, rotate: 90, opacity: 0 }}
-                transition={{ duration: 0.18 }}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                {open ? '✕' : '💬'}
-              </motion.span>
-            </AnimatePresence>
-            <AnimatePresence>
-              {hasUnread && !open && (
-                <motion.div
-                  initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
-                  style={{
-                    position: 'absolute', top: 2, left: 2,
-                    width: 18, height: 18, borderRadius: '50%',
-                    background: '#ef4444',
-                    border: '2px solid var(--color-bg)',
-                    fontSize: 10, fontWeight: 700, color: 'white',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >1</motion.div>
-              )}
-            </AnimatePresence>
-          </motion.button>
-        </div>
-      </div>
-    </>
-  );
+  return null;
 }
 
 function ActionButton({ label, icon, color, onClick }: { label: string; icon: string; color: string; onClick: () => void }) {
@@ -1066,99 +802,207 @@ function ActionButton({ label, icon, color, onClick }: { label: string; icon: st
   );
 }
 
-function CompareRecordCard({
-  record,
-  onOpen,
+function CompareRecordsTable({
+  records,
+  onOpenRecord,
 }: {
-  record: PropertyRecord;
-  onOpen: () => void;
+  records: PropertyRecord[];
+  onOpenRecord: (record: PropertyRecord) => void;
 }) {
-  const score = scoreRecord(record, loadScoringSettings());
-  const completion = record.expected_completion_min_months || record.expected_completion_max_months
-    ? `${record.expected_completion_min_months || '—'}-${record.expected_completion_max_months || '—'} mo`
-    : '—';
-
-  const compactFields: [string, string][] = [
-    ['Final score', `${score.totalScore}/${score.maxScore} (${score.percentage}%)`],
-    ['Status', normalizeStatus(record.Status) ?? 'PENDING'],
-    ['Price', `${record.price || '—'} ${record.currency || ''}`.trim()],
-    ['Area', record.area_m2 ? `${record.area_m2} m²` : '—'],
-    ['Contract', record.contract_duration_years ? `${record.contract_duration_years} yrs` : '—'],
-    ['Build', record.building_status || '—'],
-    ['ETA', completion],
-  ];
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      style={{
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-lg)',
-        background: 'var(--color-surface)',
-        padding: 10,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        minHeight: 260,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
-          <span style={{
-            padding: '4px 8px',
-            borderRadius: 999,
-            border: '1px solid rgba(108,99,255,0.35)',
-            background: 'rgba(108,99,255,0.12)',
-            color: 'var(--color-accent)',
-            fontSize: 10,
-            fontWeight: 700,
-          }}>
-            {score.totalScore}/{score.maxScore}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={onOpen}
-          style={{
-            padding: '5px 9px',
-            borderRadius: 8,
-            border: '1px solid var(--color-border)',
-            background: 'var(--color-surface-2)',
-            color: 'var(--color-text-muted)',
-            fontSize: 11,
-            fontWeight: 700,
-            cursor: 'pointer',
-          }}
-        >
-          Details
-        </button>
-      </div>
-
-      <div>
-        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>{record.location || 'No location'}</p>
-        <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
-          {record.city || '—'} • {record.region || '—'}
-        </p>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
-        {compactFields.map(([label, value]) => (
-          <div key={label} style={{
-            border: '1px solid var(--color-border)',
-            borderRadius: 8,
-            background: 'var(--color-surface-2)',
-            padding: '6px 8px',
-          }}>
-            <p style={{ margin: 0, fontSize: 10, color: 'var(--color-text-muted)' }}>{label}</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: 'var(--color-text)', wordBreak: 'break-word' }}>{value}</p>
-          </div>
-        ))}
-      </div>
-    </motion.div>
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', minWidth: 1080, borderCollapse: 'separate', borderSpacing: 0 }} dir="rtl">
+        <thead>
+          <tr>
+            <th style={compareHeaderCellStyle}>العقار</th>
+            <th style={compareHeaderCellStyle}>المدينة / المنطقة</th>
+            <th style={compareHeaderCellStyle}>الحالة</th>
+            <th style={compareHeaderCellStyle}>السعر</th>
+            <th style={compareHeaderCellStyle}>المساحة</th>
+            <th style={compareHeaderCellStyle}>العقد</th>
+            <th style={compareHeaderCellStyle}>البناء</th>
+            <th style={compareHeaderCellStyle}>الاكتمال</th>
+            <th style={compareHeaderCellStyleLast}>النتيجة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map((record, index) => {
+            const score = scoreRecord(record, loadScoringSettings());
+            const scoreTone = getScoreTone(score.percentage);
+            return (
+              <motion.tr
+                key={record.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{
+                  background: index % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'rgba(255,255,255,0.03)',
+                }}
+              >
+                <td style={compareBodyCellStyle}>
+                  <div style={{ display: 'grid', gap: 8, minWidth: 180 }}>
+                    <div>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-text)' }}>
+                        {record.location || 'بدون اسم'}
+                      </p>
+                      <p style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
+                        #{record.id}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenRecord(record)}
+                      style={{
+                        width: 'fit-content',
+                        padding: '6px 10px',
+                        borderRadius: 8,
+                        border: '1px solid var(--color-border)',
+                        background: 'var(--color-surface-2)',
+                        color: 'var(--color-text-muted)',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      التفاصيل
+                    </button>
+                  </div>
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>{record.city || '—'}</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{record.region || '—'}</span>
+                  </div>
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <StatusBadge status={normalizeStatus(record.Status)} size="sm" />
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>
+                    {`${record.price || '—'} ${record.currency || ''}`.trim()}
+                  </span>
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
+                    {record.area_m2 ? `${record.area_m2} م²` : '—'}
+                  </span>
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
+                    {record.contract_duration_years ? `${record.contract_duration_years} سنة` : '—'}
+                  </span>
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
+                    {record.building_status || '—'}
+                  </span>
+                </td>
+                <td style={compareBodyCellStyle}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text)' }}>
+                    {formatCompletion(record)}
+                  </span>
+                </td>
+                <td style={compareScoreCellStyle}>
+                  <div style={{ display: 'grid', justifyItems: 'center', gap: 6 }}>
+                    <span style={{
+                      padding: '7px 10px',
+                      borderRadius: 999,
+                      border: `1px solid ${scoreTone.border}`,
+                      background: scoreTone.background,
+                      color: scoreTone.text,
+                      fontSize: 12,
+                      fontWeight: 800,
+                      minWidth: 88,
+                      textAlign: 'center',
+                    }}>
+                      {score.percentage}%
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 700 }}>
+                      {score.totalScore}/{score.maxScore}
+                    </span>
+                  </div>
+                </td>
+              </motion.tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
+
+function formatCompletion(record: PropertyRecord): string {
+  if (!record.expected_completion_min_months && !record.expected_completion_max_months) return '—';
+  return `${record.expected_completion_min_months || '—'} - ${record.expected_completion_max_months || '—'} شهر`;
+}
+
+function getScoreTone(percentage: number) {
+  if (percentage >= 90) {
+    return {
+      background: 'rgba(139,92,246,0.14)',
+      border: 'rgba(139,92,246,0.4)',
+      text: '#c4b5fd',
+    };
+  }
+  if (percentage >= 75) {
+    return {
+      background: 'rgba(34,197,94,0.12)',
+      border: 'rgba(34,197,94,0.35)',
+      text: '#86efac',
+    };
+  }
+  if (percentage >= 60) {
+    return {
+      background: 'rgba(234,179,8,0.12)',
+      border: 'rgba(234,179,8,0.35)',
+      text: '#fde047',
+    };
+  }
+  if (percentage >= 40) {
+    return {
+      background: 'rgba(249,115,22,0.12)',
+      border: 'rgba(249,115,22,0.35)',
+      text: '#fdba74',
+    };
+  }
+  return {
+    background: 'rgba(239,68,68,0.12)',
+    border: 'rgba(239,68,68,0.35)',
+    text: '#fca5a5',
+  };
+}
+
+const compareHeaderCellStyle: React.CSSProperties = {
+  padding: '12px 14px',
+  textAlign: 'right',
+  fontSize: 12,
+  fontWeight: 800,
+  color: 'var(--color-text-muted)',
+  background: 'var(--color-surface-2)',
+  borderBottom: '1px solid var(--color-border)',
+  borderInlineEnd: '1px solid var(--color-border)',
+  whiteSpace: 'nowrap',
+};
+
+const compareHeaderCellStyleLast: React.CSSProperties = {
+  ...compareHeaderCellStyle,
+  borderInlineEnd: 'none',
+  textAlign: 'center',
+};
+
+const compareBodyCellStyle: React.CSSProperties = {
+  padding: '14px',
+  borderBottom: '1px solid var(--color-border)',
+  borderInlineEnd: '1px solid var(--color-border)',
+  verticalAlign: 'middle',
+  textAlign: 'right',
+};
+
+const compareScoreCellStyle: React.CSSProperties = {
+  ...compareBodyCellStyle,
+  borderInlineEnd: 'none',
+  textAlign: 'center',
+  minWidth: 120,
+};
 
 function RecordRow({
   record,

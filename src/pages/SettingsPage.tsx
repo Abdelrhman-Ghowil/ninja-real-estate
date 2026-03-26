@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import Layout from '../components/Layout';
 import {
@@ -6,104 +6,49 @@ import {
   loadScoringSettings,
   saveScoringSettings,
   type ScoringSettings,
-  normalizeDistrictKey,
 } from '../utils/recordScoring';
 
 const METRICS_ROWS = [
   {
-    criterion: 'Distance from Target (km)',
-    score1: '> 4 KM',
-    score2: '> 3 KM to 4 KM',
-    score3: '> 2 KM to 3 KM',
-    score4: '> 1 KM to 2 KM',
-    score5: '<= 1 KM',
+    criterion: 'المسافة من الهدف (كم)',
+    scores: ['> 4 كم', '3 – 4 كم', '2 – 3 كم', '1 – 2 كم', '≤ 1 كم'],
   },
   {
-    criterion: 'Size (sqm)',
-    score1: '< 50 sqm or Unsuitable',
-    score2: '51 – 149 sqm',
-    score3: '149.5 – 301 sqm',
-    score4: '150 – 300 sqm',
-    score5: '200 – 250 sqm',
+    criterion: 'المساحة (م²)',
+    scores: ['< 50 م²', '51 – 149 م²', '149.5 – 301 م²', '150 – 300 م²', '200 – 250 م²'],
   },
   {
-    criterion: 'Store Height (m)',
-    score1: '< 2.5 meters or Unsuitable',
-    score2: '2.5 – 2.9 meters',
-    score3: '3.0 – 3.4 meters',
-    score4: '3.5 – 3.9 meters',
-    score5: '4.0 meters',
+    criterion: 'ارتفاع المحل (م)',
+    scores: ['< 2.5 م', '2.5 – 2.9 م', '3.0 – 3.4 م', '3.5 – 3.9 م', '4.0 م+'],
   },
   {
-    criterion: 'Price (vs. District Market Avg.)',
-    score1: 'Above Market Avg.',
-    score2: '0 – 4% Below Market Avg.',
-    score3: '5 – 9% Below Market Avg.',
-    score4: '10 – 14% Below Market Avg.',
-    score5: '15%+ Below Market Avg.',
+    criterion: 'السعر مقارنة بمتوسط المنطقة',
+    scores: ['أعلى من السوق', 'أقل 0% – 4%', 'أقل 5% – 9%', 'أقل 10% – 14%', 'أقل 15%+'],
   },
   {
-    criterion: 'Contract Duration (years)',
-    score1: '< 4 years',
-    score2: '4 – 5 years',
-    score3: '6 – 7 years',
-    score4: '8 – 9 years',
-    score5: '>= 10 years',
+    criterion: 'مدة العقد (سنوات)',
+    scores: ['< 4 سنوات', '4 – 5', '6 – 7', '8 – 9', '10+'],
   },
   {
-    criterion: 'Store Status',
-    score1: 'Occupied (long-term) > 6 months',
-    score2: 'Occupied (lease ending < 6 months)',
-    score3: 'Under Construction (long timeline > 6 months)',
-    score4: 'Under Construction (short timeline < 3 months)',
-    score5: 'Ready for Rent (immediate)',
+    criterion: 'حالة المحل',
+    scores: ['مؤجر > 6 أشهر', 'مؤجر < 6 أشهر', 'إنشاء > 6 أشهر', 'إنشاء < 3 أشهر', 'جاهز فوراً'],
   },
 ];
 
+const SCORE_COLUMNS = [
+  { value: 1, label: 'ضعيف', color: '#ef4444', background: 'rgba(239,68,68,0.12)' },
+  { value: 2, label: 'منخفض', color: '#f97316', background: 'rgba(249,115,22,0.12)' },
+  { value: 3, label: 'متوسط', color: '#eab308', background: 'rgba(234,179,8,0.14)' },
+  { value: 4, label: 'جيد', color: '#22c55e', background: 'rgba(34,197,94,0.12)' },
+  { value: 5, label: 'ممتاز', color: '#8b5cf6', background: 'rgba(139,92,246,0.14)' },
+] as const;
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<ScoringSettings>(() => loadScoringSettings());
-  const [city, setCity] = useState('');
-  const [region, setRegion] = useState('');
-  const [average, setAverage] = useState('');
-
-  const districtEntries = useMemo(() => {
-    return Object.entries(settings.districtMarketAverages).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [settings.districtMarketAverages]);
 
   function updateSettings(next: ScoringSettings) {
     setSettings(next);
     saveScoringSettings(next);
-  }
-
-  function handleAddDistrictAverage() {
-    const normalizedCity = city.trim();
-    const normalizedRegion = region.trim();
-    const parsedAverage = Number.parseFloat(average);
-    if (!normalizedCity || !normalizedRegion || !Number.isFinite(parsedAverage) || parsedAverage <= 0) {
-      toast.error('أدخل المدينة والمنطقة ومتوسط سعر صحيح');
-      return;
-    }
-    const key = normalizeDistrictKey(normalizedCity, normalizedRegion);
-    updateSettings({
-      ...settings,
-      districtMarketAverages: {
-        ...settings.districtMarketAverages,
-        [key]: parsedAverage,
-      },
-    });
-    setCity('');
-    setRegion('');
-    setAverage('');
-    toast.success('تم حفظ متوسط سعر المنطقة');
-  }
-
-  function handleRemoveDistrictAverage(key: string) {
-    const next = { ...settings.districtMarketAverages };
-    delete next[key];
-    updateSettings({
-      ...settings,
-      districtMarketAverages: next,
-    });
   }
 
   function handleResetDefaults() {
@@ -117,7 +62,7 @@ export default function SettingsPage() {
         <div>
           <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800 }}>إعدادات التقييم الذكي</h1>
           <p style={{ margin: '8px 0 0', color: 'var(--color-text-muted)', fontSize: 14 }}>
-            ضبط معايير التقييم النهائية لكل سجل حسب Evaluation Metrices.
+            ضبط معايير التقييم النهائية لكل سجل حسب ملف معايير التقييم.
           </p>
         </div>
 
@@ -128,27 +73,58 @@ export default function SettingsPage() {
           padding: 20,
         }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>المعايير من ملف التقييم</h2>
+          <p style={{ margin: '8px 0 0', fontSize: 13, color: 'var(--color-text-muted)' }}>
+            عرض مبسّط للدرجات من 1 إلى 5، مع تمييز لوني لكل مستوى.
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+            {SCORE_COLUMNS.map((column) => (
+              <div
+                key={column.value}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  borderRadius: 999,
+                  border: `1px solid ${column.color}33`,
+                  background: column.background,
+                  color: column.color,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                <span>{column.value}</span>
+                <span>{column.label}</span>
+              </div>
+            ))}
+          </div>
           <div style={{ marginTop: 14, overflowX: 'auto' }}>
             <table style={{ width: '100%', minWidth: 920, borderCollapse: 'separate', borderSpacing: 0 }}>
               <thead>
                 <tr>
                   <th style={thStyleRight}>المعيار</th>
-                  <th style={thStyleCenter}>1</th>
-                  <th style={thStyleCenter}>2</th>
-                  <th style={thStyleCenter}>3</th>
-                  <th style={thStyleCenter}>4</th>
-                  <th style={thStyleCenter}>5</th>
+                  {SCORE_COLUMNS.map((column, index) => (
+                    <th key={column.value} style={getScoreHeaderStyle(column.color, column.background, index === 0)}>
+                      <div style={{ display: 'grid', gap: 2, justifyItems: 'center' }}>
+                        <span style={{ fontSize: 15, fontWeight: 800 }}>{column.value}</span>
+                        <span>{column.label}</span>
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {METRICS_ROWS.map((row) => (
                   <tr key={row.criterion}>
                     <td style={tdStyleRight}>{row.criterion}</td>
-                    <td style={tdStyleCenter}>{row.score1}</td>
-                    <td style={tdStyleCenter}>{row.score2}</td>
-                    <td style={tdStyleCenter}>{row.score3}</td>
-                    <td style={tdStyleCenter}>{row.score4}</td>
-                    <td style={tdStyleCenter}>{row.score5}</td>
+                    {row.scores.map((score, index) => (
+                      <td
+                        key={`${row.criterion}-${index + 1}`}
+                        style={getScoreCellStyle(SCORE_COLUMNS[index].color, SCORE_COLUMNS[index].background)}
+                      >
+                        {score}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
@@ -221,85 +197,6 @@ export default function SettingsPage() {
           </button>
         </section>
 
-        <section style={{
-          background: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-xl)',
-          padding: 20,
-          display: 'grid',
-          gap: 14,
-        }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>متوسطات الأسعار حسب المنطقة</h2>
-          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-            <Field label="المدينة" value={city} onChange={setCity} placeholder="النعيرية" />
-            <Field label="المنطقة" value={region} onChange={setRegion} placeholder="المنطقة الشرقية" />
-            <Field label="متوسط السعر (SAR)" value={average} onChange={setAverage} placeholder="400000" />
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              onClick={handleAddDistrictAverage}
-              style={{
-                padding: '10px 16px',
-                borderRadius: 'var(--radius-md)',
-                border: 'none',
-                background: 'var(--color-accent)',
-                color: 'white',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
-            >
-              إضافة متوسط
-            </button>
-          </div>
-
-          {districtEntries.length === 0 ? (
-            <div style={{
-              border: '1px dashed var(--color-border)',
-              borderRadius: 'var(--radius-md)',
-              padding: 14,
-              color: 'var(--color-text-muted)',
-              fontSize: 13,
-            }}>
-              لا توجد مناطق مضافة حالياً.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {districtEntries.map(([key, value]) => (
-                <div
-                  key={key}
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '10px 12px',
-                    background: 'var(--color-surface-2)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                  }}
-                >
-                  <span style={{ fontSize: 13 }}>
-                    {key.replace('::', ' • ')} — {Math.round(value).toLocaleString('en-US')} SAR
-                  </span>
-                  <button
-                    onClick={() => handleRemoveDistrictAverage(key)}
-                    style={{
-                      border: '1px solid var(--color-danger)',
-                      color: 'var(--color-danger)',
-                      background: 'transparent',
-                      borderRadius: 8,
-                      padding: '4px 10px',
-                      cursor: 'pointer',
-                      fontSize: 12,
-                    }}
-                  >
-                    حذف
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
       </div>
     </Layout>
   );
@@ -340,15 +237,7 @@ const thStyleRight: React.CSSProperties = {
   textAlign: 'right',
   padding: '12px 10px',
   borderBottom: '1px solid var(--color-border)',
-  background: 'var(--color-surface-2)',
-  fontSize: 12,
-  whiteSpace: 'nowrap',
-};
-
-const thStyleCenter: React.CSSProperties = {
-  textAlign: 'center',
-  padding: '12px 10px',
-  borderBottom: '1px solid var(--color-border)',
+  borderInlineEnd: '1px solid var(--color-border)',
   background: 'var(--color-surface-2)',
   fontSize: 12,
   whiteSpace: 'nowrap',
@@ -358,14 +247,38 @@ const tdStyleRight: React.CSSProperties = {
   textAlign: 'right',
   padding: '10px',
   borderBottom: '1px solid var(--color-border)',
+  borderInlineEnd: '1px solid var(--color-border)',
   fontSize: 12,
   verticalAlign: 'top',
+  fontWeight: 700,
+  background: 'rgba(255,255,255,0.02)',
 };
 
-const tdStyleCenter: React.CSSProperties = {
-  textAlign: 'center',
-  padding: '10px',
-  borderBottom: '1px solid var(--color-border)',
-  fontSize: 12,
-  verticalAlign: 'top',
-};
+function getScoreHeaderStyle(color: string, background: string, isFirstScoreColumn: boolean): React.CSSProperties {
+  return {
+    textAlign: 'center',
+    padding: '12px 10px',
+    borderBottom: '1px solid var(--color-border)',
+    borderInlineStart: isFirstScoreColumn ? 'none' : '1px solid var(--color-border)',
+    background,
+    color,
+    fontSize: 12,
+    whiteSpace: 'nowrap',
+  };
+}
+
+function getScoreCellStyle(color: string, background: string): React.CSSProperties {
+  return {
+    textAlign: 'center',
+    padding: '12px 10px',
+    borderBottom: '1px solid var(--color-border)',
+    borderInlineStart: '1px solid var(--color-border)',
+    background,
+    color: 'var(--color-text)',
+    fontSize: 12,
+    verticalAlign: 'top',
+    fontWeight: 600,
+    lineHeight: 1.6,
+    boxShadow: `inset 0 3px 0 ${color}`,
+  };
+}
