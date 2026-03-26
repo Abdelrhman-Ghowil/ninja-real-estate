@@ -10,20 +10,40 @@ export interface ScoringSettings {
   districtMarketAverages: Record<string, number>;
 }
 
+export type ScoreCriterionKey = 'distance' | 'size' | 'height' | 'price' | 'contract' | 'status';
+
 export interface ScoreCriterion {
-  key: 'distance' | 'size' | 'height' | 'price' | 'contract' | 'status';
+  key: ScoreCriterionKey;
   label: string;
   score: number;
   max: number;
   value: string;
 }
 
+export interface WeightedScoreCriterion extends ScoreCriterion {
+  weight: number;
+  weightedScore: number;
+  weightedMax: number;
+}
+
 export interface RecordScoreResult {
   totalScore: number;
   maxScore: number;
   percentage: number;
-  criteria: ScoreCriterion[];
+  weightedScore: number;
+  weightedMax: number;
+  weightedPercentage: number;
+  criteria: WeightedScoreCriterion[];
 }
+
+export const SCORE_WEIGHTS: Record<ScoreCriterionKey, number> = {
+  distance: 0.25,
+  size: 0.2,
+  height: 0.05,
+  price: 0.25,
+  contract: 0.15,
+  status: 0.1,
+};
 
 export const DEFAULT_SCORING_SETTINGS: ScoringSettings = {
   fallbackMarketAveragePrice: 500_000,
@@ -192,9 +212,22 @@ export function scoreRecord(record: PropertyRecord, settings: ScoringSettings): 
     scoreStoreStatus(record, fallbackScore),
   ];
 
-  const totalScore = criteria.reduce((sum, item) => sum + item.score, 0);
-  const maxScore = criteria.reduce((sum, item) => sum + item.max, 0);
-  const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+  const weightedCriteria: WeightedScoreCriterion[] = criteria.map((item) => {
+    const weight = SCORE_WEIGHTS[item.key];
+    return {
+      ...item,
+      weight,
+      weightedScore: Number((item.score * weight).toFixed(2)),
+      weightedMax: Number((item.max * weight).toFixed(2)),
+    };
+  });
 
-  return { totalScore, maxScore, percentage, criteria };
+  const totalScore = weightedCriteria.reduce((sum, item) => sum + item.score, 0);
+  const maxScore = weightedCriteria.reduce((sum, item) => sum + item.max, 0);
+  const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+  const weightedScore = Number(weightedCriteria.reduce((sum, item) => sum + item.weightedScore, 0).toFixed(2));
+  const weightedMax = Number(weightedCriteria.reduce((sum, item) => sum + item.weightedMax, 0).toFixed(2));
+  const weightedPercentage = weightedMax > 0 ? Math.round((weightedScore / weightedMax) * 100) : 0;
+
+  return { totalScore, maxScore, percentage, weightedScore, weightedMax, weightedPercentage, criteria: weightedCriteria };
 }

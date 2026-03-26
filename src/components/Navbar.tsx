@@ -58,16 +58,15 @@ export default function Navbar() {
         }}
       >
         {/* Logo */}
-        <Link to="/review" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: 'var(--color-accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, fontWeight: 700, color: 'white',
-          }}>N</div>
-          <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--color-text)' }}>
-            Ninja Real Estate
+        <Link to="/review" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--color-text-muted)', letterSpacing: 0.2 }}>
+            Real Estate
           </span>
+          <img
+            src="/brand-logo.svg"
+            alt="Ninja Real Estate"
+            style={{ height: 34, width: 'auto', display: 'block' }}
+          />
         </Link>
 
         {/* Nav links */}
