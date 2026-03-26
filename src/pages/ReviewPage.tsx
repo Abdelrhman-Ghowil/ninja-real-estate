@@ -84,80 +84,12 @@ function getMapPreviewSource(url: string | null | undefined): { embedUrl?: strin
   return { query: `${parsed.pathname}${parsed.search}` };
 }
 
-interface ChatMsg {
-  id: string;
-  role: 'user' | 'agent';
-  text: string;
-  ts: Date;
-}
-
-const QUICK_REPLIES = [
-  'كيف أرسل عقاراً؟',
-  'ما هي المناطق المتاحة؟',
-  'كيف يتم التقييم؟',
-  'مميزات المنصة',
-];
-
-function parseReply(data: unknown): string {
-  if (typeof data === 'string') return data;
-  if (Array.isArray(data) && data.length > 0) return parseReply(data[0]);
-  if (data && typeof data === 'object') {
-    const o = data as Record<string, unknown>;
-    const val = o.output ?? o.reply ?? o.message ?? o.text ?? o.content ?? o.response ?? o.answer;
-    if (val) return String(val);
-  }
-  return 'عذراً، لم أستطع فهم الرد. حاول مرة أخرى.';
-}
-
-function useChatSession() {
-  const BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
-
-  const sessionId = useMemo(() => {
-    const key = 'ninja-chat-sid';
-    const stored = sessionStorage.getItem(key);
-    if (stored) return stored;
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    sessionStorage.setItem(key, id);
-    return id;
-  }, []);
-
-  const [msgs, setMsgs] = useState<ChatMsg[]>([{
-    id: 'welcome',
-    role: 'agent',
-    text: 'أهلاً بك في Ninja Real Estate! 🏠\nأنا مساعدك الذكي، يمكنني مساعدتك في تقييم العقارات والإجابة على استفساراتك. بماذا أخدمك؟',
-    ts: new Date(),
-  }]);
-  const [loading, setLoading] = useState(false);
-  const [showQuick, setShowQuick] = useState(true);
-
-  async function send(text: string) {
-    if (!text.trim() || loading) return;
-    setShowQuick(false);
-    setMsgs(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', text: text.trim(), ts: new Date() }]);
-    setLoading(true);
-    try {
-      const res = await fetch(`${BASE_URL}/webhook/chatbot`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text.trim(), sessionId }),
-      });
-      const data = await res.json();
-      setMsgs(prev => [...prev, { id: `a-${Date.now()}`, role: 'agent', text: parseReply(data), ts: new Date() }]);
-    } catch {
-      setMsgs(prev => [...prev, { id: `err-${Date.now()}`, role: 'agent', text: 'تعذّر الاتصال بالخادم. تحقق من الاتصال وحاول مرة أخرى.', ts: new Date() }]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return { msgs, loading, send, showQuick };
-}
-
 export default function ReviewPage() {
   const { data: records, isLoading, isError } = useRecords();
   const updateRecord = useUpdateRecord();
   const [filter, setFilter] = useState<FilterStatus>('PENDING');
   const [nameFilter, setNameFilter] = useState('');
+  const [areaFilter, setAreaFilter] = useState('');
   const [weekRange, setWeekRange] = useState<{ start: Date; end: Date } | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<PropertyRecord | null>(null);
@@ -167,6 +99,23 @@ export default function ReviewPage() {
   const [skippedRecordIds, setSkippedRecordIds] = useState<number[]>([]);
 
   const normalizedNameFilter = nameFilter.trim().toLowerCase();
+  const normalizedAreaFilter = areaFilter.trim().toLowerCase();
+  const allRecords = records ?? [];
+  const areaOptions = useMemo(() => {
+    const options = new Set<string>();
+
+    allRecords.forEach((record) => {
+      [record.location, record.city, record.region].forEach((value) => {
+        const normalizedValue = value?.trim();
+        if (normalizedValue) {
+          options.add(normalizedValue);
+        }
+      });
+    });
+
+    return Array.from(options).sort((a, b) => a.localeCompare(b, 'ar'));
+  }, [allRecords]);
+  const hasAdvancedFilters = Boolean(nameFilter.trim() || areaFilter.trim() || weekRange);
 
   const matchesAdvancedFilters = (record: PropertyRecord) => {
     const matchesName = !normalizedNameFilter || [
@@ -175,14 +124,17 @@ export default function ReviewPage() {
       record.region,
       record.raw_text,
     ].some((field) => field?.toLowerCase().includes(normalizedNameFilter));
+    const matchesArea = !normalizedAreaFilter || [
+      record.location,
+      record.city,
+      record.region,
+    ].some((field) => field?.trim().toLowerCase().includes(normalizedAreaFilter));
 
-    if (!weekRange) return matchesName;
+    if (!weekRange) return matchesName && matchesArea;
     const createdAt = new Date(record.createdAt);
     if (Number.isNaN(createdAt.getTime())) return false;
-    return matchesName && createdAt >= weekRange.start && createdAt < weekRange.end;
+    return matchesName && matchesArea && createdAt >= weekRange.start && createdAt < weekRange.end;
   };
-
-  const allRecords = records ?? [];
 
   const filteredRecords = allRecords.filter((r) => {
     const status = normalizeStatus(r.Status);
@@ -270,6 +222,7 @@ export default function ReviewPage() {
 
   function clearAdvancedFilters() {
     setNameFilter('');
+    setAreaFilter('');
     setWeekRange(null);
   }
 
@@ -345,10 +298,10 @@ export default function ReviewPage() {
               transition={{ duration: 0.18 }}
               style={{
                 marginTop: 16,
-                display: 'grid',
-                gridTemplateColumns: 'minmax(280px, 1fr) auto',
+                display: 'flex',
+                flexWrap: 'wrap',
                 gap: 10,
-                alignItems: 'start',
+                alignItems: 'center',
               }}
             >
               <input
@@ -356,13 +309,19 @@ export default function ReviewPage() {
                 placeholder="🔍  فلترة بالاسم أو المدينة أو المنطقة..."
                 value={nameFilter}
                 onChange={(e) => setNameFilter(e.target.value)}
-                style={{ minHeight: 42 }}
+                style={{ minHeight: 42, flex: '1 1 320px' }}
               />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, direction: 'ltr' }}>
+              <AreaFilterField
+                options={areaOptions}
+                value={areaFilter}
+                onChange={setAreaFilter}
+              />
+              <WeekPicker value={weekRange} onChange={setWeekRange} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
                   type="button"
                   onClick={clearAdvancedFilters}
-                  disabled={!nameFilter.trim() && !weekRange}
+                  disabled={!hasAdvancedFilters}
                   aria-label="مسح الفلاتر"
                   title="مسح الفلاتر"
                   style={{
@@ -374,8 +333,8 @@ export default function ReviewPage() {
                     color: 'var(--color-text-muted)',
                     fontSize: 16,
                     fontWeight: 700,
-                    cursor: !nameFilter.trim() && !weekRange ? 'not-allowed' : 'pointer',
-                    opacity: !nameFilter.trim() && !weekRange ? 0.5 : 1,
+                    cursor: !hasAdvancedFilters ? 'not-allowed' : 'pointer',
+                    opacity: !hasAdvancedFilters ? 0.5 : 1,
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -384,7 +343,6 @@ export default function ReviewPage() {
                 >
                   ×
                 </button>
-                <WeekPicker value={weekRange} onChange={setWeekRange} />
               </div>
             </motion.div>
           )}
@@ -783,6 +741,177 @@ export default function ReviewPage() {
 
 function ChatWidget() {
   return null;
+}
+
+function AreaFilterField({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const normalizedValue = value.trim().toLowerCase();
+  const filteredOptions = useMemo(() => {
+    if (!normalizedValue) return options.slice(0, 80);
+    return options
+      .filter((option) => option.toLowerCase().includes(normalizedValue))
+      .slice(0, 80);
+  }, [normalizedValue, options]);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', flex: '1 1 260px', minWidth: 220 }}>
+      <div
+        style={{
+          height: 42,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          borderRadius: 12,
+          border: `1px solid ${open ? 'var(--color-accent)' : 'var(--color-border)'}`,
+          background: open ? 'rgba(108,99,255,0.08)' : 'var(--color-surface)',
+          paddingInline: 12,
+          transition: 'all 0.15s ease',
+          boxShadow: open ? '0 0 0 3px rgba(108,99,255,0.08)' : 'none',
+        }}
+      >
+        <span style={{ fontSize: 13, color: 'var(--color-accent)', flexShrink: 0 }}>⌕</span>
+        <input
+          className="input-field"
+          placeholder="ابحث عن المنطقة..."
+          value={value}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          style={{
+            minHeight: 0,
+            height: '100%',
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+            boxShadow: 'none',
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          aria-label="عرض المناطق"
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 8,
+            border: 'none',
+            background: 'rgba(108,99,255,0.14)',
+            color: 'var(--color-accent)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            fontSize: 12,
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.15s ease',
+          }}
+        >
+          ▾
+        </button>
+      </div>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.14 }}
+            style={{
+              position: 'absolute',
+              top: 48,
+              insetInlineStart: 0,
+              width: '100%',
+              zIndex: 30,
+              borderRadius: 14,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              boxShadow: '0 18px 36px rgba(0,0,0,0.28)',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              padding: '10px 12px',
+              borderBottom: '1px solid var(--color-border)',
+              background: 'linear-gradient(180deg, rgba(108,99,255,0.08), rgba(108,99,255,0.02))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>المناطق</span>
+              <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{filteredOptions.length}</span>
+            </div>
+            <div style={{ maxHeight: 220, overflowY: 'auto', padding: 6 }}>
+              {!filteredOptions.length ? (
+                <div style={{
+                  padding: '12px 10px',
+                  borderRadius: 10,
+                  color: 'var(--color-text-muted)',
+                  fontSize: 12,
+                  textAlign: 'center',
+                  background: 'var(--color-surface-2)',
+                }}>
+                  لا توجد نتائج
+                </div>
+              ) : (
+                filteredOptions.map((option) => {
+                  const isActive = option === value;
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        onChange(option);
+                        setOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        background: isActive ? 'rgba(108,99,255,0.14)' : 'transparent',
+                        color: isActive ? 'var(--color-accent)' : 'var(--color-text)',
+                        borderRadius: 10,
+                        padding: '10px 12px',
+                        textAlign: 'right',
+                        cursor: 'pointer',
+                        fontSize: 13,
+                        fontWeight: isActive ? 700 : 500,
+                        transition: 'background 0.15s ease, color 0.15s ease',
+                      }}
+                    >
+                      {option}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 function ActionButton({ label, icon, color, onClick }: { label: string; icon: string; color: string; onClick: () => void }) {
