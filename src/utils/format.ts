@@ -28,22 +28,45 @@ export function fromNow(dateStr: string): string {
   return dayjs(dateStr).locale('ar').fromNow();
 }
 
+export function parseLatLng(value?: string | null): { lat: number; lng: number } | null {
+  if (!value) return null;
+  const match = value.trim().match(/^(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if (!match) return null;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  return { lat, lng };
+}
+
 function buildGoogleEmbedFromQuery(query: string, apiKey?: string | null): string {
-  const normalizedKey = apiKey?.trim();
-  if (normalizedKey) {
-    return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(normalizedKey)}&q=${encodeURIComponent(query)}`;
+  if (apiKey) {
+    return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}&language=ar`;
   }
-  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
+  return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
+}
+
+function extractCoords(value: string): string | null {
+  const coords = value.match(/(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!coords) return null;
+  return `${coords[1]},${coords[2]}`;
+}
+
+function extractDeepLinkCoords(value: string): string | null {
+  const deepLinkCoords = value.match(/!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/);
+  if (!deepLinkCoords) return null;
+  return `${deepLinkCoords[1]},${deepLinkCoords[2]}`;
 }
 
 function parseMapQuery(urlValue: string): { embedUrl?: string; query?: string } | null {
   const value = urlValue.trim();
   if (!value) return null;
 
-  const coords = value.match(/(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
-  if (coords) {
-    return { query: `${coords[1]},${coords[2]}` };
-  }
+  const coords = extractCoords(value);
+  if (coords) return { query: coords };
+
+  const deepLinkCoords = extractDeepLinkCoords(value);
+  if (deepLinkCoords) return { query: deepLinkCoords };
 
   if (!/^https?:\/\//i.test(value)) {
     return { query: value };
@@ -75,10 +98,11 @@ function parseMapQuery(urlValue: string): { embedUrl?: string; query?: string } 
     return { query: `${atCoords[1]},${atCoords[2]}` };
   }
 
-  const deepLinkCoords = parsed.pathname.match(/!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)/);
-  if (deepLinkCoords) {
-    return { query: `${deepLinkCoords[1]},${deepLinkCoords[2]}` };
-  }
+  const pathDeepLinkCoords = extractDeepLinkCoords(parsed.pathname);
+  if (pathDeepLinkCoords) return { query: pathDeepLinkCoords };
+
+  const pbDeepLinkCoords = extractDeepLinkCoords(parsed.searchParams.get('pb') ?? '');
+  if (pbDeepLinkCoords) return { query: pbDeepLinkCoords };
 
   const placePath = parsed.pathname.match(/\/place\/([^/]+)/);
   if (placePath) {
@@ -101,7 +125,9 @@ export function resolveRecordMapPreview(options: {
   const normalizedRecordUrl = options.recordUrl?.trim();
 
   const embedUrl = parsed?.embedUrl || (query ? buildGoogleEmbedFromQuery(query, options.apiKey) : null);
-  const openUrl = normalizedRecordUrl || (query ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}` : null);
+  const openUrl = query
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+    : normalizedRecordUrl || null;
 
   return {
     embedUrl,

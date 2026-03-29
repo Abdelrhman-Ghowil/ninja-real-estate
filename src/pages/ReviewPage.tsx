@@ -1,13 +1,15 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import Layout from '../components/Layout';
 import SwipeCard from '../components/SwipeCard';
 import StatusBadge from '../components/StatusBadge';
 import Skeleton from '../components/Skeleton';
+import { GoogleMap, MarkerF, useJsApiLoader } from '@react-google-maps/api';
 import { useRecords, useUpdateRecord } from '../hooks/useRecords';
 import type { PropertyRecord } from '../api/records';
 import { loadScoringSettings, scoreRecord } from '../utils/recordScoring';
+import { parseLatLng, resolveRecordMapPreview } from '../utils/format';
 
 type FilterStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALL';
 
@@ -17,71 +19,11 @@ const FILTER_CHIPS: { label: string; value: FilterStatus }[] = [
   { label: 'مرفوض', value: 'REJECTED' },
   { label: 'الكل', value: 'ALL' },
 ];
+const DEFAULT_MAP_CENTER = { lat: 24.7136, lng: 46.6753 };
 
 function normalizeStatus(status: unknown): 'APPROVED' | 'REJECTED' | null {
   if (status === 'APPROVED' || status === 'REJECTED') return status;
   return null;
-}
-
-function getGoogleMapEmbedUrlFromQuery(query: string, apiKey: string | null): string {
-  if (apiKey) {
-    return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(query)}`;
-  }
-  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
-}
-
-function getMapPreviewSource(url: string | null | undefined): { embedUrl?: string; query?: string } | null {
-  if (!url) return null;
-  const value = url.trim();
-  if (!value) return null;
-
-  const coords = value.match(/(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
-  if (coords) {
-    return { query: `${coords[1]},${coords[2]}` };
-  }
-
-  if (!/^https?:\/\//i.test(value)) {
-    return { query: value };
-  }
-
-  let parsed: URL | null = null;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return { query: value };
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (!host.includes('google.') && !host.includes('maps.app.goo.gl') && !host.includes('goo.gl') && !host.includes('g.page')) {
-    return { query: value };
-  }
-
-  if (parsed.pathname.includes('/maps/embed')) return { embedUrl: parsed.toString() };
-
-  const q = parsed.searchParams.get('q')
-    || parsed.searchParams.get('query')
-    || parsed.searchParams.get('destination')
-    || parsed.searchParams.get('daddr');
-  if (q) {
-    return { query: q };
-  }
-
-  const atCoords = parsed.pathname.match(/@(-?\d{1,3}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/);
-  if (atCoords) {
-    return { query: `${atCoords[1]},${atCoords[2]}` };
-  }
-
-  const placePath = parsed.pathname.match(/\/place\/([^/]+)/);
-  if (placePath) {
-    const placeName = decodeURIComponent(placePath[1]).replace(/\+/g, ' ');
-    return { query: placeName };
-  }
-
-  if (host.includes('maps.app.goo.gl') || host.includes('goo.gl')) {
-    return null;
-  }
-
-  return { query: `${parsed.pathname}${parsed.search}` };
 }
 
 export default function ReviewPage() {
@@ -97,10 +39,14 @@ export default function ReviewPage() {
   const [comparisonIds, setComparisonIds] = useState<number[]>([]);
   const [visibleMapRecordId, setVisibleMapRecordId] = useState<number | null>(null);
   const [skippedRecordIds, setSkippedRecordIds] = useState<number[]>([]);
+  const [geocodedMapResult, setGeocodedMapResult] = useState<{
+    query: string;
+    center: { lat: number; lng: number } | null;
+  } | null>(null);
 
   const normalizedNameFilter = nameFilter.trim().toLowerCase();
   const normalizedAreaFilter = areaFilter.trim().toLowerCase();
-  const allRecords = records ?? [];
+  const allRecords = useMemo(() => records ?? [], [records]);
   const areaOptions = useMemo(() => {
     const options = new Set<string>();
 
@@ -117,7 +63,7 @@ export default function ReviewPage() {
   }, [allRecords]);
   const hasAdvancedFilters = Boolean(nameFilter.trim() || areaFilter.trim() || weekRange);
 
-  const matchesAdvancedFilters = (record: PropertyRecord) => {
+  const matchesAdvancedFilters = useCallback((record: PropertyRecord) => {
     const matchesName = !normalizedNameFilter || [
       record.location,
       record.city,
@@ -134,7 +80,7 @@ export default function ReviewPage() {
     const createdAt = new Date(record.createdAt);
     if (Number.isNaN(createdAt.getTime())) return false;
     return matchesName && matchesArea && createdAt >= weekRange.start && createdAt < weekRange.end;
-  };
+  }, [normalizedAreaFilter, normalizedNameFilter, weekRange]);
 
   const filteredRecords = allRecords.filter((r) => {
     const status = normalizeStatus(r.Status);
@@ -164,17 +110,60 @@ export default function ReviewPage() {
     .filter((record): record is PropertyRecord => Boolean(record));
   const currentCard = swipeableRecords[0];
   const googleMapsApiKey = ((import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined) ?? '').trim() || null;
+  const currentRecordId = currentCard?.id ?? null;
+  const { isLoaded: isGoogleMapsLoaded, loadError: googleMapsLoadError } = useJsApiLoader({
+    id: 'ninja-real-estate-google-map',
+    googleMapsApiKey: googleMapsApiKey ?? '',
+  });
   const currentMapQuery = [currentCard?.location, currentCard?.city, currentCard?.region]
     .filter(Boolean)
     .join(' ');
-  const mapPreviewSource = getMapPreviewSource(currentCard?.Url_location);
-  const resolvedMapQuery = mapPreviewSource?.query || currentMapQuery || null;
-  const currentMapEmbedUrl = mapPreviewSource?.embedUrl
-    || (resolvedMapQuery ? getGoogleMapEmbedUrlFromQuery(resolvedMapQuery, googleMapsApiKey) : null);
-  const currentMapOpenUrl = currentCard?.Url_location?.trim()
-    || (resolvedMapQuery ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(resolvedMapQuery)}` : null);
-  const hasMapPreview = Boolean(currentMapEmbedUrl || currentMapOpenUrl || currentCard?.location);
-  const isCurrentMapVisible = currentCard?.id != null && visibleMapRecordId === currentCard.id;
+  const mapPreviewSource = resolveRecordMapPreview({
+    recordUrl: currentCard?.Url_location,
+    fallbackQuery: currentMapQuery,
+    apiKey: googleMapsApiKey,
+  });
+  const resolvedMapQuery = mapPreviewSource.query;
+  const directMapCenter = useMemo(() => parseLatLng(resolvedMapQuery), [resolvedMapQuery]);
+  const canRenderInteractiveMap = Boolean(googleMapsApiKey && isGoogleMapsLoaded && !googleMapsLoadError);
+  const resolvedMapCenter = directMapCenter
+    || (geocodedMapResult?.query === resolvedMapQuery ? geocodedMapResult.center : null);
+  const isResolvingMapCenter = Boolean(
+    canRenderInteractiveMap
+    && !directMapCenter
+    && resolvedMapQuery
+    && geocodedMapResult?.query !== resolvedMapQuery,
+  );
+  const currentMapEmbedUrl = mapPreviewSource.embedUrl;
+  const currentMapOpenUrl = mapPreviewSource.openUrl;
+  const hasMapPreview = Boolean(currentMapEmbedUrl || currentMapOpenUrl || resolvedMapQuery || currentCard?.location);
+  const isCurrentMapVisible = currentRecordId != null && visibleMapRecordId === currentRecordId;
+
+  useEffect(() => {
+    if (!resolvedMapQuery || !canRenderInteractiveMap || directMapCenter) {
+      return;
+    }
+
+    let cancelled = false;
+    const activeQuery = resolvedMapQuery;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ address: activeQuery }, (results, status) => {
+      if (cancelled) return;
+      if (status === 'OK' && results?.[0]?.geometry?.location) {
+        const location = results[0].geometry.location;
+        setGeocodedMapResult({
+          query: activeQuery,
+          center: { lat: location.lat(), lng: location.lng() },
+        });
+      } else {
+        setGeocodedMapResult({ query: activeQuery, center: null });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canRenderInteractiveMap, currentRecordId, directMapCenter, resolvedMapQuery]);
 
   function handleAction(record: PropertyRecord, status: 'APPROVED' | 'REJECTED') {
     setSkippedRecordIds((prev) => prev.filter((id) => id !== record.id));
@@ -624,7 +613,45 @@ export default function ReviewPage() {
                               </a>
                             )}
                           </div>
-                          {currentMapEmbedUrl ? (
+                          {canRenderInteractiveMap ? (
+                            <div style={{ position: 'relative' }}>
+                              <GoogleMap
+                                mapContainerStyle={{
+                                  width: '100%',
+                                  height: 300,
+                                  borderRadius: 'var(--radius-lg)',
+                                  background: 'var(--color-surface-2)',
+                                }}
+                                center={resolvedMapCenter || DEFAULT_MAP_CENTER}
+                                zoom={resolvedMapCenter ? 14 : 6}
+                                options={{
+                                  disableDefaultUI: true,
+                                  zoomControl: true,
+                                  fullscreenControl: true,
+                                  mapTypeControl: false,
+                                  streetViewControl: false,
+                                }}
+                              >
+                                {resolvedMapCenter && <MarkerF position={resolvedMapCenter} />}
+                              </GoogleMap>
+                              {(isResolvingMapCenter || (!resolvedMapCenter && resolvedMapQuery)) && (
+                                <div style={{
+                                  position: 'absolute',
+                                  insetInline: 12,
+                                  bottom: 12,
+                                  padding: '8px 10px',
+                                  borderRadius: 10,
+                                  background: 'rgba(17,17,25,0.78)',
+                                  border: '1px solid rgba(255,255,255,0.12)',
+                                  color: '#fff',
+                                  fontSize: 11,
+                                  textAlign: 'center',
+                                }}>
+                                  {isResolvingMapCenter ? 'جاري تحديد الموقع...' : 'تعذر تحديد الإحداثيات بدقة من الرابط'}
+                                </div>
+                              )}
+                            </div>
+                          ) : currentMapEmbedUrl ? (
                             <iframe
                               key={currentCard?.id}
                               src={currentMapEmbedUrl}
